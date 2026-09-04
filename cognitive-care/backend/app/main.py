@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI
+
+from .database import test_database_connection
 
 
 # ==========================================
@@ -14,38 +15,17 @@ app = FastAPI(
 
 
 # ==========================================
-# PATIENT MODEL
+# STARTUP EVENT
 # ==========================================
 
-class Patient(BaseModel):
-    id: int
-    name: str
-    age: int
-    language: str
+@app.on_event("startup")
+def startup_event():
 
-
-# ==========================================
-# TEMPORARY PATIENT DATA
-# ==========================================
-
-patients = [
-    Patient(
-        id=1,
-        name="Anita Devi",
-        age=72,
-        language="Assamese"
-    ),
-    Patient(
-        id=2,
-        name="Ramesh Das",
-        age=68,
-        language="Bengali"
-    )
-]
+    test_database_connection()
 
 
 # ==========================================
-# HOME
+# HOME ROUTE
 # ==========================================
 
 @app.get("/")
@@ -53,58 +33,4 @@ def home():
 
     return {
         "message": "Cognitive Care API is running"
-    }
-
-
-# ==========================================
-# GET ALL PATIENTS
-# ==========================================
-
-@app.get("/patients")
-def get_patients():
-
-    return patients
-
-
-# ==========================================
-# GET SINGLE PATIENT
-# ==========================================
-
-@app.get("/patients/{patient_id}")
-def get_patient(patient_id: int):
-
-    for patient in patients:
-
-        if patient.id == patient_id:
-            return patient
-
-    raise HTTPException(
-        status_code=404,
-        detail="Patient not found"
-    )
-
-
-# ==========================================
-# CREATE PATIENT
-# ==========================================
-
-@app.post("/patients")
-def create_patient(patient: Patient):
-
-    # Check if patient ID already exists
-
-    for existing_patient in patients:
-
-        if existing_patient.id == patient.id:
-
-            raise HTTPException(
-                status_code=400,
-                detail="Patient ID already exists"
-            )
-
-    patients.append(patient)
-
-    return {
-        "message": "Patient created successfully",
-        "patient": patient
     }
