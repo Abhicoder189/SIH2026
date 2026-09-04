@@ -34,20 +34,25 @@ class _CognitiveDashboardScreenState
     });
 
     try {
-      final result =
-          await ApiService.caregiverPatients(widget.token);
+      final result = await ApiService.caregiverPatients(
+        widget.token,
+      );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         patients = result;
         loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
-        error = e.toString();
+        error = e.toString().replaceFirst('Exception: ', '');
         loading = false;
       });
     }
@@ -100,18 +105,18 @@ class _CognitiveDashboardScreenState
   }
 
   int _integer(
-  dynamic value, [
-  int fallback = 0,
-]) {
-  if (value is num) {
-    return value.toInt();
-  }
+    dynamic value, [
+    int fallback = 0,
+  ]) {
+    if (value is num) {
+      return value.toInt();
+    }
 
-  return int.tryParse(
-        value?.toString() ?? '',
-      ) ??
-      fallback;
-}
+    return int.tryParse(
+          value?.toString() ?? '',
+        ) ??
+        fallback;
+  }
 
   Map<String, dynamic> _map(dynamic value) {
     if (value is Map) {
@@ -134,7 +139,7 @@ class _CognitiveDashboardScreenState
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Caregiver Dashboard',
+          'Cognitive Analytics',
           style: TextStyle(
             fontWeight: FontWeight.bold,
           ),
@@ -199,7 +204,9 @@ class _CognitiveDashboardScreenState
       return const Center(
         child: Text(
           'No linked patients yet.',
-          style: TextStyle(fontSize: 20),
+          style: TextStyle(
+            fontSize: 20,
+          ),
         ),
       );
     }
@@ -210,8 +217,9 @@ class _CognitiveDashboardScreenState
         padding: const EdgeInsets.all(20),
         itemCount: patients.length,
         itemBuilder: (context, index) {
-          final patient =
-              Map<String, dynamic>.from(patients[index]);
+          final patient = Map<String, dynamic>.from(
+            patients[index],
+          );
 
           final patientId =
               (patient['patient_id'] ?? patient['id']).toString();
@@ -221,10 +229,12 @@ class _CognitiveDashboardScreenState
 
           final language =
               patient['language']?.toString() ??
-                  'Language not set';
+              'Language not set';
 
           return Card(
-            margin: const EdgeInsets.only(bottom: 16),
+            margin: const EdgeInsets.only(
+              bottom: 16,
+            ),
             child: ExpansionTile(
               leading: const CircleAvatar(
                 radius: 26,
@@ -331,8 +341,7 @@ class _CognitiveDashboardScreenState
         20,
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(),
 
@@ -428,7 +437,9 @@ class _CognitiveDashboardScreenState
           icon,
           size: 28,
         ),
+
         const SizedBox(height: 6),
+
         Text(
           value,
           textAlign: TextAlign.center,
@@ -437,7 +448,9 @@ class _CognitiveDashboardScreenState
             fontWeight: FontWeight.bold,
           ),
         ),
+
         const SizedBox(height: 3),
+
         Text(
           title,
           textAlign: TextAlign.center,
@@ -452,14 +465,17 @@ class _CognitiveDashboardScreenState
   Widget _buildPerformanceSection(
     Map<String, dynamic> profile,
   ) {
-    final memory =
-        _map(profile['memory']);
+    final memory = _map(
+      profile['memory'],
+    );
 
-    final attention =
-        _map(profile['attention']);
+    final attention = _map(
+      profile['attention'],
+    );
 
-    final pattern =
-        _map(profile['pattern']);
+    final pattern = _map(
+      profile['pattern'],
+    );
 
     return Card(
       elevation: 0,
@@ -531,6 +547,7 @@ class _CognitiveDashboardScreenState
           children: [
             Icon(icon),
             const SizedBox(width: 10),
+
             Expanded(
               child: Text(
                 title,
@@ -540,6 +557,7 @@ class _CognitiveDashboardScreenState
                 ),
               ),
             ),
+
             Text(
               'Level $difficulty',
               style: const TextStyle(
@@ -576,15 +594,14 @@ class _CognitiveDashboardScreenState
   ) {
     final method =
         recommendation['method']?.toString() ??
-            'rule_based';
+        'rule_based';
 
     final confidence =
         recommendation['confidence'];
 
-    final confidenceText =
-        confidence == null
-            ? 'Not enough history for ML yet.'
-            : 'AI confidence: $confidence%';
+    final confidenceText = confidence == null
+        ? 'Not enough history for ML yet.'
+        : 'AI confidence: $confidence%';
 
     return Card(
       elevation: 0,
@@ -651,6 +668,7 @@ class _CognitiveDashboardScreenState
               children: [
                 const Icon(Icons.notifications),
                 const SizedBox(width: 10),
+
                 Text(
                   'Engagement Alerts (${alerts.length})',
                   style: const TextStyle(
@@ -666,35 +684,32 @@ class _CognitiveDashboardScreenState
             if (alerts.isEmpty)
               const Text(
                 'No current engagement alerts.',
-                style: TextStyle(fontSize: 16),
+                style: TextStyle(
+                  fontSize: 16,
+                ),
               ),
 
             ...alerts.map(
               (alert) {
-                final item =
-                    _map(alert);
+                final item = _map(alert);
 
-                final severity =
-                    item['severity']
-                        ?.toString()
-                        .toLowerCase();
+                final severity = item['severity']
+                    ?.toString()
+                    .toLowerCase();
 
-                final icon =
-                    severity == 'high'
-                        ? Icons.warning
-                        : Icons.info_outline;
+                final icon = severity == 'high'
+                    ? Icons.warning
+                    : Icons.info_outline;
 
                 return ListTile(
-                  contentPadding:
-                      EdgeInsets.zero,
+                  contentPadding: EdgeInsets.zero,
                   leading: Icon(icon),
                   title: Text(
                     item['title']?.toString() ??
                         'Attention',
                   ),
                   subtitle: Text(
-                    item['message']?.toString() ??
-                        '',
+                    item['message']?.toString() ?? '',
                   ),
                 );
               },

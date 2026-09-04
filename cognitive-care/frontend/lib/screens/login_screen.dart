@@ -39,9 +39,9 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // ----------------------------------------------------------
+      // ==========================================================
       // 1. LOGIN
-      // ----------------------------------------------------------
+      // ==========================================================
 
       final result = await ApiService.login(
         email,
@@ -63,9 +63,9 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
 
-      // ----------------------------------------------------------
-      // 2. SAVE TOKEN
-      // ----------------------------------------------------------
+      // ==========================================================
+      // 2. SAVE LOGIN SESSION
+      // ==========================================================
 
       await AuthService.saveLogin(
         token: token,
@@ -73,13 +73,9 @@ class _LoginScreenState extends State<LoginScreen> {
         role: role,
       );
 
-      // ----------------------------------------------------------
+      // ==========================================================
       // 3. VERIFY TOKEN
-      // ----------------------------------------------------------
-      //
-      // This makes sure the exact token stored by Flutter
-      // is accepted by the backend.
-      //
+      // ==========================================================
 
       final profile = await ApiService.getCurrentUser(token);
 
@@ -92,9 +88,9 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // ----------------------------------------------------------
+      // ==========================================================
       // 4. OPEN HOME SCREEN
-      // ----------------------------------------------------------
+      // ==========================================================
 
       Navigator.pushReplacement(
         context,
@@ -109,7 +105,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (error) {
       debugPrint('LOGIN ERROR: $error');
 
-      // Remove potentially invalid/stale credentials.
+      // Remove invalid or stale credentials.
       await AuthService.logout();
 
       if (!mounted) {

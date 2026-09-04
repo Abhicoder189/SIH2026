@@ -66,7 +66,7 @@ class ApiService {
       }
     } catch (error) {
       throw Exception(
-        'Unable to connect to Cognitive Care server.',
+        'Unable to connect to SmiritiSarthi server.',
       );
     }
 
@@ -535,25 +535,26 @@ class ApiService {
   // VOICE
   // ============================================================
 
- static Future<Map<String, dynamic>> voiceCommand(
-  String token,
-  String text, {
-  String language = 'en',
-  List<Map<String, String>> history = const [],
-}) async {
-  final response = await _request(
-    'POST',
-    '/voice/command',
-    token: token,
-    body: {
-      'text': text,
-      'language': language,
-      'history': history,
-    },
-  );
+  static Future<Map<String, dynamic>> voiceCommand(
+    String token,
+    String text, {
+    String language = 'en',
+    List<Map<String, String>> history = const [],
+  }) async {
+    final response = await _request(
+      'POST',
+      '/voice/command',
+      token: token,
+      body: {
+        'text': text,
+        'language': language,
+        'history': history,
+      },
+    );
 
-  return Map<String, dynamic>.from(response);
-}
+    return Map<String, dynamic>.from(response);
+  }
+
   // ============================================================
   // OFFLINE SYNC
   // ============================================================
@@ -614,54 +615,100 @@ class ApiService {
   // COMPLETE PLATFORM FEATURES
   // ============================================================
 
-  static Future<Map<String, dynamic>> getDailyActivity(String token, String patientId) async {
-    final response = await _request('GET', '/patients/$patientId/daily-activity', token: token);
+  static Future<Map<String, dynamic>> getDailyActivity(
+    String token,
+    String patientId,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/patients/$patientId/daily-activity',
+      token: token,
+    );
+
     return Map<String, dynamic>.from(response);
   }
 
-  static Future<Map<String, dynamic>> getAlerts(String token, String patientId, {bool caregiver = false}) async {
-    final path = caregiver ? '/caregiver/patients/$patientId/alerts' : '/patients/$patientId/alerts';
-    final response = await _request('GET', path, token: token);
+  static Future<Map<String, dynamic>> getAlerts(
+    String token,
+    String patientId, {
+    bool caregiver = false,
+  }) async {
+    final path = caregiver
+        ? '/caregiver/patients/$patientId/alerts'
+        : '/patients/$patientId/alerts';
+
+    final response = await _request(
+      'GET',
+      path,
+      token: token,
+    );
+
     return Map<String, dynamic>.from(response);
   }
 
-  static Future<Map<String, dynamic>> getPreferences(String token, String patientId) async {
-    final response = await _request('GET', '/patients/$patientId/preferences', token: token);
+  static Future<Map<String, dynamic>> getPreferences(
+    String token,
+    String patientId,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/patients/$patientId/preferences',
+      token: token,
+    );
+
     return Map<String, dynamic>.from(response);
   }
 
-  static Future<Map<String, dynamic>> updatePreferences(String token, String patientId, Map<String, dynamic> preferences) async {
-    final response = await _request('PUT', '/patients/$patientId/preferences', token: token, body: preferences);
+  static Future<Map<String, dynamic>> updatePreferences(
+    String token,
+    String patientId,
+    Map<String, dynamic> preferences,
+  ) async {
+    final response = await _request(
+      'PUT',
+      '/patients/$patientId/preferences',
+      token: token,
+      body: preferences,
+    );
+
     return Map<String, dynamic>.from(response);
   }
 
-  static Future<Map<String, dynamic>> getNotificationFeed(String token, String patientId) async {
-    final response = await _request('GET', '/patients/$patientId/notification-feed', token: token);
+  static Future<Map<String, dynamic>> getNotificationFeed(
+    String token,
+    String patientId,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/patients/$patientId/notification-feed',
+      token: token,
+    );
+
     return Map<String, dynamic>.from(response);
   }
 
-static Future<Map<String, dynamic>> getCurrentUser(
-  String token,
-) async {
-  final response = await _request(
-    'GET',
-    '/auth/me',
-    token: token,
-  );
+  static Future<Map<String, dynamic>> getCurrentUser(
+    String token,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/auth/me',
+      token: token,
+    );
 
-  return Map<String, dynamic>.from(response);
-}
-static Future<Map<String, dynamic>> getDifficultyRecommendation(
-  String token,
-  String patientId,
-) async {
-  final response = await _request(
-    'GET',
-    '/patients/$patientId/difficulty-recommendation',
-    token: token,
-  );
+    return Map<String, dynamic>.from(response);
+  }
 
-  return Map<String, dynamic>.from(response);
-}
+  static Future<Map<String, dynamic>> getDifficultyRecommendation(
+    String token,
+    String patientId,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/patients/$patientId/difficulty-recommendation',
+      token: token,
+    );
 
+    return Map<String, dynamic>.from(response);
+  }
 }

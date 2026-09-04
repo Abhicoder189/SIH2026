@@ -1,5 +1,5 @@
-
 import 'package:flutter/material.dart';
+
 import '../services/api_service.dart';
 
 class CaregiverDashboardScreen extends StatefulWidget {
@@ -34,30 +34,33 @@ class _CaregiverDashboardScreenState
     });
 
     try {
-      final result =
-          await ApiService.caregiverPatients(widget.token);
+      final result = await ApiService.caregiverPatients(
+        widget.token,
+      );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         patients = result;
+        loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
-        error = e.toString();
-      });
-    } finally {
-      if (!mounted) return;
-
-      setState(() {
+        error = e.toString().replaceFirst('Exception: ', '');
         loading = false;
       });
     }
   }
 
-  Future<Map<String, dynamic>?> _loadAlerts(String patientId) async {
+  Future<Map<String, dynamic>?> _loadAlerts(
+    String patientId,
+  ) async {
     try {
       return await ApiService.getAlerts(
         widget.token,
@@ -73,11 +76,17 @@ class _CaregiverDashboardScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Caregiver Dashboard'),
+        title: const Text(
+          'Caregiver Dashboard',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         actions: [
           IconButton(
-            onPressed: _loadPatients,
+            onPressed: loading ? null : _loadPatients,
             icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
           ),
         ],
       ),
@@ -96,10 +105,28 @@ class _CaregiverDashboardScreenState
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
-            error!,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.cloud_off,
+                size: 60,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: _loadPatients,
+                icon: const Icon(Icons.refresh),
+                label: const Text('TRY AGAIN'),
+              ),
+            ],
           ),
         ),
       );
@@ -109,7 +136,9 @@ class _CaregiverDashboardScreenState
       return const Center(
         child: Text(
           'No linked patients yet.',
-          style: TextStyle(fontSize: 20),
+          style: TextStyle(
+            fontSize: 20,
+          ),
         ),
       );
     }
@@ -118,8 +147,9 @@ class _CaregiverDashboardScreenState
       padding: const EdgeInsets.all(20),
       itemCount: patients.length,
       itemBuilder: (context, index) {
-        final patient =
-            Map<String, dynamic>.from(patients[index]);
+        final patient = Map<String, dynamic>.from(
+          patients[index],
+        );
 
         final patientId =
             (patient['patient_id'] ?? patient['id']).toString();
@@ -129,10 +159,12 @@ class _CaregiverDashboardScreenState
 
         final language =
             patient['language']?.toString() ??
-                'Language not set';
+            'Language not set';
 
         return Card(
-          margin: const EdgeInsets.only(bottom: 14),
+          margin: const EdgeInsets.only(
+            bottom: 14,
+          ),
           child: ExpansionTile(
             leading: const CircleAvatar(
               child: Icon(Icons.person),
@@ -181,12 +213,16 @@ class _CaregiverDashboardScreenState
                         if (alerts.isEmpty)
                           const Text(
                             'No current alerts.',
-                            style: TextStyle(fontSize: 16),
+                            style: TextStyle(
+                              fontSize: 16,
+                            ),
                           ),
                         ...alerts.map(
                           (alert) {
                             final item =
-                                Map<String, dynamic>.from(alert);
+                                Map<String, dynamic>.from(
+                              alert,
+                            );
 
                             final severity =
                                 item['severity']?.toString();
@@ -196,8 +232,7 @@ class _CaregiverDashboardScreenState
                                 : Icons.info_outline;
 
                             return ListTile(
-                              contentPadding:
-                                  EdgeInsets.zero,
+                              contentPadding: EdgeInsets.zero,
                               leading: Icon(icon),
                               title: Text(
                                 item['title']?.toString() ??

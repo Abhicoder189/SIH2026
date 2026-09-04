@@ -50,6 +50,35 @@ def calculate_trend(performance_scores):
     return "stable"
 
 
+def _clean_attempt(attempt):
+    """
+    Convert an attempt into a JSON-friendly analytics record.
+
+    Only the fields needed by personalization and the frontend
+    are exposed.
+    """
+    return {
+        "game_type": attempt.get("game_type"),
+        "difficulty": attempt.get("difficulty"),
+        "accuracy": attempt.get("accuracy", 0),
+        "reaction_time": attempt.get("reaction_time", 0),
+        "performance_score": attempt.get(
+            "performance_score",
+            0,
+        ),
+        "hints_used": attempt.get(
+            "hints_used",
+            0,
+        ),
+        "next_difficulty": attempt.get(
+            "next_difficulty",
+        ),
+        "created_at": attempt.get(
+            "created_at",
+        ),
+    }
+
+
 def calculate_game_analytics(attempts):
     """
     Calculate analytics separately for each game type.
@@ -125,6 +154,10 @@ def calculate_game_analytics(attempts):
 def analyze_patient_performance(attempts):
     """
     Calculate complete patient-level analytics.
+
+    The returned recent_attempts field is used by the
+    personalization engine to select the next game and
+    difficulty.
     """
 
     if not attempts:
@@ -136,7 +169,13 @@ def analyze_patient_performance(attempts):
             "trend": "insufficient_data",
             "consistency": "insufficient_data",
             "current_difficulty": None,
+
             "games": calculate_game_analytics([]),
+
+            # Alias used by frontend/dashboard code.
+            "by_game_type": calculate_game_analytics([]),
+
+            "recent_attempts": [],
         }
 
     accuracy_values = [
@@ -157,6 +196,16 @@ def analyze_patient_performance(attempts):
     current_difficulty = attempts[-1].get(
         "next_difficulty"
     )
+
+    games = calculate_game_analytics(attempts)
+
+    # Keep the most recent attempts for personalization.
+    # The backend already sorts attempts chronologically,
+    # so the last items are the newest.
+    recent_attempts = [
+        _clean_attempt(attempt)
+        for attempt in attempts[-10:]
+    ]
 
     return {
         "total_attempts": len(attempts),
@@ -183,7 +232,11 @@ def analyze_patient_performance(attempts):
 
         "current_difficulty": current_difficulty,
 
-        "games": calculate_game_analytics(
-            attempts
-        ),
+        "games": games,
+
+        # Frontend-friendly alias.
+        "by_game_type": games,
+
+        # Used by personalization.py.
+        "recent_attempts": recent_attempts,
     }

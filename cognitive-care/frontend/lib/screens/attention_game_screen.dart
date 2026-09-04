@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../services/api_service.dart';
 
 class AttentionGameScreen extends StatefulWidget {
@@ -12,12 +13,10 @@ class AttentionGameScreen extends StatefulWidget {
   });
 
   @override
-  State<AttentionGameScreen> createState() =>
-      _AttentionGameScreenState();
+  State<AttentionGameScreen> createState() => _AttentionGameScreenState();
 }
 
-class _AttentionGameScreenState
-    extends State<AttentionGameScreen> {
+class _AttentionGameScreenState extends State<AttentionGameScreen> {
   bool _loading = true;
   bool _submitting = false;
   bool _finished = false;
@@ -76,8 +75,7 @@ class _AttentionGameScreenState
       }
 
       setState(() {
-        _sessionId =
-            response['game_session_id']?.toString();
+        _sessionId = response['game_session_id']?.toString();
 
         _grid = grid;
         _target = target;
@@ -118,10 +116,7 @@ class _AttentionGameScreenState
 
     if (_startTime != null) {
       _reactionTime =
-          DateTime.now()
-                  .difference(_startTime!)
-                  .inMilliseconds /
-              1000.0;
+          DateTime.now().difference(_startTime!).inMilliseconds / 1000.0;
     }
 
     setState(() {
@@ -140,12 +135,10 @@ class _AttentionGameScreenState
       );
 
       setState(() {
-        _score =
-            (response['score'] as num?)?.toInt() ?? 0;
+        _score = (response['score'] as num?)?.toInt() ?? 0;
 
         _nextDifficulty =
-            (response['next_difficulty'] as num?)?.toInt() ??
-                1;
+            (response['next_difficulty'] as num?)?.toInt() ?? 1;
 
         _finished = true;
         _submitting = false;
@@ -228,7 +221,6 @@ class _AttentionGameScreenState
         child: Column(
           children: [
             const SizedBox(height: 10),
-
             const Text(
               'Attention Game',
               style: TextStyle(
@@ -236,17 +228,13 @@ class _AttentionGameScreenState
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 12),
-
             const Text(
               'Count how many target symbols you can find.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 17),
             ),
-
             const SizedBox(height: 25),
-
             Card(
               elevation: 3,
               child: Padding(
@@ -260,18 +248,12 @@ class _AttentionGameScreenState
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-
                     const SizedBox(height: 8),
-
                     Text(
                       _symbolToEmoji(_target ?? ''),
-                      style: const TextStyle(
-                        fontSize: 55,
-                      ),
+                      style: const TextStyle(fontSize: 55),
                     ),
-
                     const SizedBox(height: 8),
-
                     Text(
                       'Selected: $_selectedCount',
                       style: const TextStyle(
@@ -283,13 +265,10 @@ class _AttentionGameScreenState
                 ),
               ),
             ),
-
             const SizedBox(height: 25),
-
             GridView.builder(
               shrinkWrap: true,
-              physics:
-                  const NeverScrollableScrollPhysics(),
+              physics: const NeverScrollableScrollPhysics(),
               itemCount: _grid.length,
               gridDelegate:
                   const SliverGridDelegateWithFixedCrossAxisCount(
@@ -299,7 +278,6 @@ class _AttentionGameScreenState
               ),
               itemBuilder: (context, index) {
                 final symbol = _grid[index];
-                final isTarget = symbol == _target;
 
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -309,8 +287,7 @@ class _AttentionGameScreenState
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(
                         color: Colors.grey.shade300,
                         width: 2,
@@ -319,24 +296,19 @@ class _AttentionGameScreenState
                     child: Center(
                       child: Text(
                         _symbolToEmoji(symbol),
-                        style: const TextStyle(
-                          fontSize: 36,
-                        ),
+                        style: const TextStyle(fontSize: 36),
                       ),
                     ),
                   ),
                 );
               },
             ),
-
             const SizedBox(height: 30),
-
             SizedBox(
               width: double.infinity,
               height: 58,
               child: ElevatedButton(
-                onPressed:
-                    _submitting ? null : _submitAnswer,
+                onPressed: _submitting ? null : _submitAnswer,
                 child: _submitting
                     ? const CircularProgressIndicator()
                     : const Text(
@@ -355,15 +327,13 @@ class _AttentionGameScreenState
   }
 
   Widget _buildResult() {
-    final difference =
-        (_selectedCount - _correctCount).abs();
+    final difference = (_selectedCount - _correctCount).abs();
 
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               _score == 100
@@ -374,9 +344,7 @@ class _AttentionGameScreenState
                   ? Colors.green
                   : Colors.orange,
             ),
-
             const SizedBox(height: 20),
-
             Text(
               _resultMessage(),
               style: const TextStyle(
@@ -384,9 +352,7 @@ class _AttentionGameScreenState
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 20),
-
             Text(
               'Score: $_score%',
               style: const TextStyle(
@@ -394,23 +360,18 @@ class _AttentionGameScreenState
                 fontWeight: FontWeight.bold,
               ),
             ),
-
             const SizedBox(height: 12),
-
             Text(
               'Your answer: $_selectedCount',
               style: const TextStyle(fontSize: 18),
             ),
-
             Text(
               'Correct answer: $_correctCount',
               style: const TextStyle(fontSize: 18),
             ),
-
             if (difference > 0)
               Padding(
-                padding:
-                    const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   'You were $difference away.',
                   style: TextStyle(
@@ -419,9 +380,7 @@ class _AttentionGameScreenState
                   ),
                 ),
               ),
-
             const SizedBox(height: 12),
-
             Text(
               'Reaction time: '
               '${_reactionTime.toStringAsFixed(1)} seconds',
@@ -430,9 +389,7 @@ class _AttentionGameScreenState
                 color: Colors.grey.shade700,
               ),
             ),
-
             const SizedBox(height: 12),
-
             Text(
               'Next recommended difficulty: '
               '$_nextDifficulty',
@@ -442,9 +399,7 @@ class _AttentionGameScreenState
               ),
               textAlign: TextAlign.center,
             ),
-
             const SizedBox(height: 35),
-
             SizedBox(
               width: double.infinity,
               height: 58,
@@ -459,9 +414,7 @@ class _AttentionGameScreenState
                 ),
               ),
             ),
-
             const SizedBox(height: 15),
-
             SizedBox(
               width: double.infinity,
               height: 58,

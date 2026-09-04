@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
@@ -39,36 +38,40 @@ class _NotificationFeedScreenState
     }
 
     try {
-      final result =
-          await ApiService.getNotificationFeed(
+      final result = await ApiService.getNotificationFeed(
         widget.token,
         widget.patientId,
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         data = result;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         error = e.toString();
       });
-    } finally {
-      if (!mounted) return;
-
-      setState(() {
-        loading = false;
-      });
     }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      loading = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final items =
-        (data?['items'] as List?) ?? [];
+    final items = (data?['items'] as List?) ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -136,26 +139,23 @@ class _NotificationFeedScreenState
         return const SizedBox(height: 10);
       },
       itemBuilder: (context, index) {
-        final item =
-            Map<String, dynamic>.from(items[index]);
+        final item = Map<String, dynamic>.from(
+          items[index],
+        );
 
         final title =
-            item['title']?.toString() ??
-                'Reminder';
+            item['title']?.toString() ?? 'Reminder';
 
         final message =
-            item['message']?.toString() ??
-                '';
+            item['message']?.toString() ?? '';
 
         final type =
-            item['type']?.toString() ??
-                '';
+            item['type']?.toString() ?? '';
 
         return Card(
           child: ListTile(
             isThreeLine: true,
-            contentPadding:
-                const EdgeInsets.all(16),
+            contentPadding: const EdgeInsets.all(16),
             leading: const Icon(
               Icons.notifications_active,
               size: 32,
@@ -168,8 +168,7 @@ class _NotificationFeedScreenState
               ),
             ),
             subtitle: Padding(
-              padding:
-                  const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(top: 6),
               child: Text(
                 message,
                 style: const TextStyle(
@@ -191,4 +190,3 @@ class _NotificationFeedScreenState
     );
   }
 }
-

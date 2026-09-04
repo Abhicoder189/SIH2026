@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 
@@ -22,8 +21,6 @@ class MemoryGameScreen extends StatefulWidget {
 
 class _MemoryGameScreenState
     extends State<MemoryGameScreen> {
-  final Random _random = Random();
-
   bool _loading = true;
   bool _submitting = false;
   bool _gameFinished = false;
@@ -76,18 +73,17 @@ class _MemoryGameScreenState
       _selectedObjects.clear();
       _secondsRemaining = 5;
       _result = null;
+      _challengeStartedAt = null;
     });
 
     try {
-      final response =
-          await ApiService.startMemoryGame(
+      final response = await ApiService.startMemoryGame(
         token: widget.token,
         patientId: widget.patientId,
         difficulty: _difficulty,
       );
 
-      final challenge =
-          Map<String, dynamic>.from(
+      final challenge = Map<String, dynamic>.from(
         response['challenge'] ?? response,
       );
 
@@ -99,18 +95,18 @@ class _MemoryGameScreenState
         challenge['options'] ?? objects,
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _gameSessionId =
             response['game_session_id']?.toString();
 
-        _difficulty =
-            int.tryParse(
-                  response['difficulty']?.toString() ??
-                      '',
-                ) ??
-                _difficulty;
+        _difficulty = int.tryParse(
+              response['difficulty']?.toString() ?? '',
+            ) ??
+            _difficulty;
 
         _objectsToRemember = objects;
         _options = options;
@@ -120,15 +116,15 @@ class _MemoryGameScreenState
 
       _startMemoryCountdown();
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _loading = false;
-        _errorMessage =
-            error.toString().replaceFirst(
-                  'Exception: ',
-                  '',
-                );
+        _errorMessage = error
+            .toString()
+            .replaceFirst('Exception: ', '');
       });
     }
   }
@@ -153,8 +149,7 @@ class _MemoryGameScreenState
 
           setState(() {
             _secondsRemaining = 0;
-            _challengeStartedAt =
-                DateTime.now();
+            _challengeStartedAt = DateTime.now();
           });
 
           return;
@@ -210,28 +205,25 @@ class _MemoryGameScreenState
       _submitting = true;
     });
 
-    final reactionTime =
-        _challengeStartedAt == null
-            ? 0.0
-            : DateTime.now()
-                    .difference(
-                      _challengeStartedAt!,
-                    )
-                    .inMilliseconds /
-                1000.0;
+    final reactionTime = _challengeStartedAt == null
+        ? 0.0
+        : DateTime.now()
+                .difference(_challengeStartedAt!)
+                .inMilliseconds /
+            1000.0;
 
     try {
-      final response =
-          await ApiService.submitMemoryGame(
+      final response = await ApiService.submitMemoryGame(
         token: widget.token,
         patientId: widget.patientId,
         gameSessionId: _gameSessionId!,
-        selectedObjects:
-            _selectedObjects.toList(),
+        selectedObjects: _selectedObjects.toList(),
         reactionTime: reactionTime,
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _result = response;
@@ -239,7 +231,9 @@ class _MemoryGameScreenState
         _submitting = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         _submitting = false;
@@ -259,8 +253,7 @@ class _MemoryGameScreenState
   // ============================================================
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
       ),
@@ -274,10 +267,7 @@ class _MemoryGameScreenState
   int get _localCorrectCount {
     return _selectedObjects
         .where(
-          (object) =>
-              _objectsToRemember.contains(
-            object,
-          ),
+          (object) => _objectsToRemember.contains(object),
         )
         .length;
   }
@@ -289,8 +279,7 @@ class _MemoryGameScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor:
-          const Color(0xFFF7F9FC),
+      backgroundColor: const Color(0xFFF7F9FC),
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -329,7 +318,6 @@ class _MemoryGameScreenState
       children: [
         _buildHeader(),
         const SizedBox(height: 20),
-
         if (_secondsRemaining > 0)
           _buildMemoryPhase()
         else
@@ -344,8 +332,7 @@ class _MemoryGameScreenState
 
   Widget _buildHeader() {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
           'Remember the objects',
@@ -377,19 +364,19 @@ class _MemoryGameScreenState
         Card(
           elevation: 2,
           shape: RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(24),
           ),
           child: Padding(
-            padding:
-                const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Column(
               children: [
                 const Icon(
                   Icons.psychology,
                   size: 60,
                 ),
+
                 const SizedBox(height: 12),
+
                 const Text(
                   'Remember these objects',
                   textAlign: TextAlign.center,
@@ -398,32 +385,32 @@ class _MemoryGameScreenState
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+
                 const SizedBox(height: 8),
-                Text(
+
+                const Text(
                   'Look carefully. They will disappear soon.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 18,
                     color: Colors.black54,
                   ),
                 ),
+
                 const SizedBox(height: 24),
 
                 Wrap(
                   spacing: 14,
                   runSpacing: 14,
-                  alignment:
-                      WrapAlignment.center,
-                  children:
-                      _objectsToRemember
-                          .map(
-                            (object) =>
-                                _objectCard(
-                              object,
-                              large: true,
-                            ),
-                          )
-                          .toList(),
+                  alignment: WrapAlignment.center,
+                  children: _objectsToRemember
+                      .map(
+                        (object) => _objectCard(
+                          object,
+                          large: true,
+                        ),
+                      )
+                      .toList(),
                 ),
 
                 const SizedBox(height: 25),
@@ -431,21 +418,16 @@ class _MemoryGameScreenState
                 Container(
                   width: 80,
                   height: 80,
-                  decoration:
-                      BoxDecoration(
-                    shape:
-                        BoxShape.circle,
-                    color: Colors.indigo
-                        .shade50,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.indigo.shade50,
                   ),
                   child: Center(
                     child: Text(
                       '$_secondsRemaining',
-                      style:
-                          const TextStyle(
+                      style: const TextStyle(
                         fontSize: 34,
-                        fontWeight:
-                            FontWeight.bold,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
@@ -464,35 +446,35 @@ class _MemoryGameScreenState
 
   Widget _buildRecallPhase() {
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Card(
           elevation: 1,
           shape: RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(22),
           ),
           child: const Padding(
-            padding:
-                EdgeInsets.all(22),
+            padding: EdgeInsets.all(22),
             child: Column(
               children: [
                 Icon(
                   Icons.visibility_off,
                   size: 50,
                 ),
+
                 SizedBox(height: 10),
+
                 Text(
                   'Which objects do you remember?',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 23,
-                    fontWeight:
-                        FontWeight.bold,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
+
                 SizedBox(height: 6),
+
                 Text(
                   'Tap all the objects you saw.',
                   textAlign: TextAlign.center,
@@ -510,8 +492,7 @@ class _MemoryGameScreenState
 
         GridView.builder(
           shrinkWrap: true,
-          physics:
-              const NeverScrollableScrollPhysics(),
+          physics: const NeverScrollableScrollPhysics(),
           itemCount: _options.length,
           gridDelegate:
               const SliverGridDelegateWithFixedCrossAxisCount(
@@ -520,55 +501,37 @@ class _MemoryGameScreenState
             mainAxisSpacing: 14,
             childAspectRatio: 1.35,
           ),
-          itemBuilder:
-              (context, index) {
-            final object =
-                _options[index];
+          itemBuilder: (context, index) {
+            final object = _options[index];
 
             final selected =
-                _selectedObjects
-                    .contains(object);
+                _selectedObjects.contains(object);
 
             return GestureDetector(
-              behavior:
-                  HitTestBehavior.opaque,
-              onTap: () =>
-                  _toggleObject(object),
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _toggleObject(object),
               child: AnimatedContainer(
-                duration:
-                    const Duration(
+                duration: const Duration(
                   milliseconds: 180,
                 ),
-                decoration:
-                    BoxDecoration(
+                decoration: BoxDecoration(
                   color: selected
-                      ? Colors.indigo
-                          .shade100
+                      ? Colors.indigo.shade100
                       : Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(
-                    20,
-                  ),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: selected
                         ? Colors.indigo
-                        : Colors.grey
-                            .shade300,
-                    width:
-                        selected ? 3 : 1,
+                        : Colors.grey.shade300,
+                    width: selected ? 3 : 1,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black
-                          .withOpacity(
-                        0.05,
+                      color: Colors.black.withValues(
+                        alpha: 0.05,
                       ),
                       blurRadius: 5,
-                      offset:
-                          const Offset(
-                        0,
-                        2,
-                      ),
+                      offset: const Offset(0, 2),
                     ),
                   ],
                 ),
@@ -580,22 +543,20 @@ class _MemoryGameScreenState
                       object,
                       size: 48,
                     ),
-                    const SizedBox(
-                      height: 8,
-                    ),
+
+                    const SizedBox(height: 8),
+
                     Text(
                       object,
-                      style:
-                          const TextStyle(
+                      style: const TextStyle(
                         fontSize: 17,
-                        fontWeight:
-                            FontWeight.w600,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
+
                     if (selected)
                       const Padding(
-                        padding:
-                            EdgeInsets.only(
+                        padding: EdgeInsets.only(
                           top: 5,
                         ),
                         child: Icon(
@@ -626,26 +587,19 @@ class _MemoryGameScreenState
         SizedBox(
           height: 60,
           child: ElevatedButton(
-            onPressed:
-                _submitting
-                    ? null
-                    : _submitAnswer,
-            style:
-                ElevatedButton.styleFrom(
-              shape:
-                  RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(
-                  18,
-                ),
+            onPressed: _submitting
+                ? null
+                : _submitAnswer,
+            style: ElevatedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
               ),
             ),
             child: _submitting
                 ? const SizedBox(
                     width: 25,
                     height: 25,
-                    child:
-                        CircularProgressIndicator(
+                    child: CircularProgressIndicator(
                       strokeWidth: 3,
                     ),
                   )
@@ -653,8 +607,7 @@ class _MemoryGameScreenState
                     'Submit Answer',
                     style: TextStyle(
                       fontSize: 20,
-                      fontWeight:
-                          FontWeight.bold,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
           ),
@@ -676,24 +629,23 @@ class _MemoryGameScreenState
       height: large ? 105 : 90,
       decoration: BoxDecoration(
         color: Colors.indigo.shade50,
-        borderRadius:
-            BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
-        mainAxisAlignment:
-            MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _objectIcon(
             object,
             size: large ? 48 : 40,
           ),
+
           const SizedBox(height: 5),
+
           Text(
             object,
             style: TextStyle(
               fontSize: large ? 15 : 14,
-              fontWeight:
-                  FontWeight.w600,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -740,40 +692,26 @@ class _MemoryGameScreenState
   // ============================================================
 
   Widget _buildResult() {
-    final correct =
-        int.tryParse(
-              _result?['correct_count']
-                      ?.toString() ??
-                  '',
-            ) ??
-            _localCorrectCount;
+    final correct = int.tryParse(
+          _result?['correct_count']?.toString() ?? '',
+        ) ??
+        _localCorrectCount;
 
-    final total =
-        int.tryParse(
-              _result?['total_objects']
-                      ?.toString() ??
-                  '',
-            ) ??
-            _objectsToRemember.length;
+    final total = int.tryParse(
+          _result?['total_objects']?.toString() ?? '',
+        ) ??
+        _objectsToRemember.length;
 
-    final performance =
-        double.tryParse(
-              _result?['performance_score']
-                      ?.toString() ??
-                  '',
-            ) ??
-            ((total == 0)
-                ? 0
-                : correct /
-                        total *
-                    100);
+    final performance = double.tryParse(
+          _result?['performance_score']?.toString() ?? '',
+        ) ??
+        ((total == 0)
+            ? 0
+            : correct / total * 100);
 
-    final nextDifficulty =
-        int.tryParse(
-          _result?['next_difficulty']
-                  ?.toString() ??
-              '',
-        );
+    final nextDifficulty = int.tryParse(
+      _result?['next_difficulty']?.toString() ?? '',
+    );
 
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -812,20 +750,17 @@ class _MemoryGameScreenState
         Card(
           elevation: 2,
           shape: RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.circular(25),
+            borderRadius: BorderRadius.circular(25),
           ),
           child: Padding(
-            padding:
-                const EdgeInsets.all(25),
+            padding: const EdgeInsets.all(25),
             child: Column(
               children: [
                 const Text(
                   'Your Score',
                   style: TextStyle(
                     fontSize: 22,
-                    fontWeight:
-                        FontWeight.bold,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
 
@@ -835,8 +770,7 @@ class _MemoryGameScreenState
                   '$correct / $total',
                   style: const TextStyle(
                     fontSize: 42,
-                    fontWeight:
-                        FontWeight.bold,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
 
@@ -844,32 +778,22 @@ class _MemoryGameScreenState
 
                 Text(
                   '${performance.toStringAsFixed(0)}% performance',
-                  style:
-                      TextStyle(
+                  style: TextStyle(
                     fontSize: 19,
-                    color: Colors
-                        .indigo
-                        .shade700,
-                    fontWeight:
-                        FontWeight.w600,
+                    color: Colors.indigo.shade700,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
 
-                if (nextDifficulty !=
-                    null) ...[
-                  const SizedBox(
-                    height: 15,
-                  ),
+                if (nextDifficulty != null) ...[
+                  const SizedBox(height: 15),
                   Text(
                     'Next recommended difficulty: '
                     '$nextDifficulty',
-                    textAlign:
-                        TextAlign.center,
-                    style:
-                        const TextStyle(
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
                       fontSize: 17,
-                      color:
-                          Colors.black54,
+                      color: Colors.black54,
                     ),
                   ),
                 ],
@@ -883,8 +807,7 @@ class _MemoryGameScreenState
         SizedBox(
           height: 60,
           child: ElevatedButton.icon(
-            onPressed:
-                _startNewGame,
+            onPressed: _startNewGame,
             icon: const Icon(
               Icons.refresh,
               size: 28,
@@ -893,18 +816,12 @@ class _MemoryGameScreenState
               'Play Again',
               style: TextStyle(
                 fontSize: 20,
-                fontWeight:
-                    FontWeight.bold,
+                fontWeight: FontWeight.bold,
               ),
             ),
-            style:
-                ElevatedButton.styleFrom(
-              shape:
-                  RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(
-                  18,
-                ),
+            style: ElevatedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
               ),
             ),
           ),
@@ -918,14 +835,9 @@ class _MemoryGameScreenState
             onPressed: () {
               Navigator.pop(context);
             },
-            style:
-                OutlinedButton.styleFrom(
-              shape:
-                  RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(
-                  18,
-                ),
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
               ),
             ),
             child: const Text(
@@ -947,27 +859,28 @@ class _MemoryGameScreenState
   Widget _buildError() {
     return Center(
       child: Padding(
-        padding:
-            const EdgeInsets.all(25),
+        padding: const EdgeInsets.all(25),
         child: Column(
-          mainAxisAlignment:
-              MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Icon(
               Icons.cloud_off,
               size: 70,
             ),
+
             const SizedBox(height: 20),
+
             const Text(
               'Unable to start the game',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 25,
-                fontWeight:
-                    FontWeight.bold,
+                fontWeight: FontWeight.bold,
               ),
             ),
+
             const SizedBox(height: 12),
+
             Text(
               _errorMessage ?? '',
               textAlign: TextAlign.center,
@@ -976,12 +889,13 @@ class _MemoryGameScreenState
                 color: Colors.black54,
               ),
             ),
+
             const SizedBox(height: 25),
+
             SizedBox(
               height: 55,
               child: ElevatedButton(
-                onPressed:
-                    _startNewGame,
+                onPressed: _startNewGame,
                 child: const Text(
                   'Try Again',
                   style: TextStyle(

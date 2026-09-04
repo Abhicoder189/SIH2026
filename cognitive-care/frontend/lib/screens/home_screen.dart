@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
@@ -78,9 +77,18 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final results = await Future.wait([
-        ApiService.getAnalyticsSummary(widget.token, patientId),
-        ApiService.getNextSession(widget.token, patientId),
-        ApiService.getNotificationFeed(widget.token, patientId),
+        ApiService.getAnalyticsSummary(
+          widget.token,
+          patientId,
+        ),
+        ApiService.getNextSession(
+          widget.token,
+          patientId,
+        ),
+        ApiService.getNotificationFeed(
+          widget.token,
+          patientId,
+        ),
       ]);
 
       if (!mounted) return;
@@ -92,11 +100,14 @@ class _HomeScreenState extends State<HomeScreen> {
         _notifications = Map<String, dynamic>.from(results[2]);
         _loading = false;
       });
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
 
       setState(() {
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = error.toString().replaceFirst(
+              'Exception: ',
+              '',
+            );
         _loading = false;
       });
     }
@@ -136,6 +147,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   double _accuracy() {
+    /*
+     * Backend analytics returns:
+     *
+     * average_accuracy
+     *
+     * and game-specific analytics contain:
+     *
+     * average_accuracy
+     */
+
     final byGameType = _summary['by_game_type'];
 
     if (byGameType is Map && byGameType.isNotEmpty) {
@@ -144,7 +165,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
       for (final value in byGameType.values) {
         if (value is Map) {
-          final accuracy = value['accuracy'];
+          final accuracy =
+              value['average_accuracy'] ?? value['accuracy'];
 
           if (accuracy is num) {
             total += accuracy.toDouble();
@@ -170,12 +192,86 @@ class _HomeScreenState extends State<HomeScreen> {
   String _recommendationText() {
     final recommendation = _nextSession['recommendation'];
 
-    if (recommendation != null &&
-        recommendation.toString().trim().isNotEmpty) {
-      return recommendation.toString();
+    if (recommendation is Map) {
+      final gameType =
+          recommendation['game_type']?.toString() ??
+          'activity';
+
+      final difficulty =
+          recommendation['difficulty']?.toString() ??
+          '1';
+
+      final reason =
+          recommendation['reason']?.toString();
+
+      final formattedGameType = _formatGameType(gameType);
+
+      if (reason != null && reason.trim().isNotEmpty) {
+        return '$formattedGameType • Difficulty $difficulty\n$reason';
+      }
+
+      return '$formattedGameType • Difficulty $difficulty';
+    }
+
+    /*
+     * Some backend versions may return the recommendation
+     * fields directly instead of nesting them.
+     */
+    final gameType =
+        _nextSession['game_type']?.toString();
+
+    final difficulty =
+        _nextSession['difficulty']?.toString();
+
+    final reason =
+        _nextSession['reason']?.toString();
+
+    if (gameType != null && gameType.isNotEmpty) {
+      final formattedGameType =
+          _formatGameType(gameType);
+
+      final difficultyText =
+          difficulty != null && difficulty.isNotEmpty
+              ? ' • Difficulty $difficulty'
+              : '';
+
+      if (reason != null && reason.trim().isNotEmpty) {
+        return '$formattedGameType$difficultyText\n$reason';
+      }
+
+      return '$formattedGameType$difficultyText';
+    }
+
+    if (recommendation != null) {
+      final text = recommendation.toString().trim();
+
+      if (text.isNotEmpty && text != '{}') {
+        return text;
+      }
     }
 
     return 'Keep practicing regularly to maintain your cognitive engagement.';
+  }
+
+  String _formatGameType(String gameType) {
+    switch (gameType.toLowerCase()) {
+      case 'memory':
+        return 'Memory Game';
+
+      case 'attention':
+        return 'Attention Game';
+
+      case 'pattern':
+        return 'Pattern Game';
+
+      default:
+        if (gameType.isEmpty) {
+          return 'Activity';
+        }
+
+        return gameType[0].toUpperCase() +
+            gameType.substring(1);
+    }
   }
 
   String _patientId() {
@@ -198,7 +294,7 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: const Color(0xFFF7F8FC),
       appBar: AppBar(
         title: const Text(
-          'Cognitive Care',
+          'SmiritiSarthi',
           style: TextStyle(
             fontWeight: FontWeight.bold,
           ),
@@ -312,7 +408,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
               ),
+
               const SizedBox(width: 12),
+
               Expanded(
                 child: _small(
                   'Voice Help',
@@ -342,13 +440,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     _open(
                       CognitiveDashboardScreen(
                         token: widget.token,
-                       
                       ),
                     );
                   },
                 ),
               ),
+
               const SizedBox(width: 12),
+
               Expanded(
                 child: _small(
                   'Settings',
@@ -359,7 +458,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         token: widget.token,
                         patientId: _patientId(),
                         language:
-                            _patient['language']?.toString() ?? 'English',
+                            _patient['language']?.toString() ??
+                            'English',
                       ),
                     );
                   },
@@ -378,7 +478,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 20),
 
-          if (_notifications.isNotEmpty) _notificationSummary(),
+          if (_notifications.isNotEmpty)
+            _notificationSummary(),
 
           const SizedBox(height: 20),
 
@@ -470,7 +571,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Welcome, $name!',
@@ -503,7 +605,8 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
           children: [
             const CircleAvatar(
               child: Icon(Icons.auto_awesome),
@@ -513,7 +616,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
             Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   const Text(
                     'Today’s Recommendation',
@@ -578,7 +682,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
               Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
                   children: [
                     Text(
                       title,
@@ -647,17 +752,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _progress() {
-    final accuracy = _accuracy().clamp(0, 100);
+    final accuracy =
+        _accuracy().clamp(0, 100).toDouble();
 
     return Card(
       elevation: 0,
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment:
+                  MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
                   'Overall Accuracy',
@@ -734,4 +842,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
