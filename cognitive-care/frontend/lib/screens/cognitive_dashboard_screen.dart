@@ -22,6 +22,7 @@ class CognitiveDashboardScreen extends StatefulWidget {
 class _CognitiveDashboardScreenState
     extends State<CognitiveDashboardScreen> {
   List<dynamic> patients = [];
+  List<dynamic> pendingRequests = [];
 
   bool loading = true;
   bool linking = false;
@@ -44,16 +45,22 @@ class _CognitiveDashboardScreenState
     }
 
     try {
-      final result = await ApiService.caregiverPatients(
-        widget.token,
-      );
+      final results = await Future.wait([
+        ApiService.caregiverPatients(
+          widget.token,
+        ),
+        ApiService.caregiverMyRequests(
+          widget.token,
+        ),
+      ]);
 
       if (!mounted) {
         return;
       }
 
       setState(() {
-        patients = result;
+        patients = results[0];
+        pendingRequests = results[1];
         loading = false;
         error = null;
       });
@@ -555,7 +562,7 @@ class _CognitiveDashboardScreenState
       );
     }
 
-    if (patients.isEmpty) {
+    if (patients.isEmpty && pendingRequests.isEmpty) {
       return _buildEmptyState();
     }
 
@@ -568,14 +575,20 @@ class _CognitiveDashboardScreenState
           20,
           100,
         ),
-        itemCount: patients.length,
+        itemCount: patients.length + pendingRequests.length,
         itemBuilder: (
           context,
           index,
         ) {
+          if (index < pendingRequests.length) {
+            return _pendingRequestCard(
+              pendingRequests[index],
+            );
+          }
+
           final patient =
               Map<String, dynamic>.from(
-            patients[index],
+            patients[index - pendingRequests.length],
           );
 
           final patientObject =
@@ -723,10 +736,13 @@ class _CognitiveDashboardScreenState
             Text(
               'Link an elderly user using their Patient ID. '
               'The patient will need to accept your request '
-              'before their information appears here.',
+              'before their information appears here.\n\n'
+              'After sending a request, you will see it '
+              'marked as "Waiting for acceptance" until '
+              'the patient approves it.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 17,
                 color: Colors.grey.shade700,
               ),
             ),
@@ -752,6 +768,86 @@ class _CognitiveDashboardScreenState
                   vertical: 15,
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _pendingRequestCard(
+    Map<String, dynamic> request,
+  ) {
+    final patientName =
+        request['patient_name']?.toString() ??
+        'Patient';
+
+    final relationship =
+        request['relationship']?.toString() ??
+        'Caregiver';
+
+    final createdAt = request['created_at'];
+
+    String timeAgo = '';
+    if (createdAt != null) {
+      timeAgo = 'Sent recently';
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(
+        bottom: 14,
+      ),
+      color: Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: Colors.orange.shade100,
+              child: Icon(
+                Icons.hourglass_top,
+                color: Colors.orange.shade700,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    patientName,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '$relationship • Waiting for acceptance',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.orange.shade800,
+                    ),
+                  ),
+                  if (timeAgo.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      timeAgo,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Icon(
+              Icons.pending,
+              color: Colors.orange.shade400,
             ),
           ],
         ),

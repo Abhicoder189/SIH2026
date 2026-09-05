@@ -500,6 +500,18 @@ class ApiService {
     return List<dynamic>.from(response);
   }
 
+  static Future<List<dynamic>> caregiverMyRequests(
+    String token,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/caregiver/my-requests',
+      token: token,
+    );
+
+    return List<dynamic>.from(response);
+  }
+
   static Future<Map<String, dynamic>> requestCaregiverLink({
     required String token,
     required String patientId,

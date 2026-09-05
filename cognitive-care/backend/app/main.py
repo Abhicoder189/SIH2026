@@ -2225,6 +2225,60 @@ def caregiver_patients(
 
 
 @app.get(
+    "/caregiver/my-requests",
+)
+def caregiver_my_requests(
+    current_user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """Return pending link requests sent by this caregiver."""
+
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Caregiver role required",
+        )
+
+    links = caregiver_links_collection.find(
+        {
+            "caregiver_id": current_user["user_id"],
+            "status": "pending",
+        }
+    )
+
+    result = []
+
+    for link in links:
+        patient = patients_collection.find_one(
+            {
+                "_id": object_id(
+                    link["patient_id"],
+                    "patient ID",
+                )
+            }
+        )
+
+        result.append(
+            {
+                "link_id": str(link["_id"]),
+                "patient_id": link["patient_id"],
+                "patient_name": (
+                    patient.get("name")
+                    if patient
+                    else "Patient"
+                ),
+                "relationship": link.get(
+                    "relationship",
+                    "Caregiver",
+                ),
+                "status": link["status"],
+                "created_at": link.get("created_at"),
+            }
+        )
+
+    return result
+
+
+@app.get(
     "/caregiver/patients/{patient_id}"
 )
 @app.get(
