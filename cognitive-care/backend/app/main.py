@@ -29,6 +29,7 @@ from .database import (
     daily_activity_collection,
     game_attempts_collection,
     game_sessions_collection,
+    journeys_collection,
     memories_collection,
     memory_interactions_collection,
     patients_collection,
@@ -47,6 +48,8 @@ from .schemas import (
     AttentionGameSubmit,
     CaregiverLinkCreate,
     GameStart,
+    JourneyCreate,
+    JourneyLocationUpdate,
     MemoryCreate,
     MemoryGameSubmit,
     MemoryUpdate,
@@ -2870,4 +2873,445 @@ def memory_interaction(
 
     return {
         "status": "recorded",
+    }
+
+
+# ============================================================
+# JOURNEY ASSIST
+# ============================================================
+
+import math
+
+DESTINATION_RADIUS_M = 100
+ARRIVAL_RADIUS_M = 50
+MIN_PROMPT_INTERVAL_MIN = 15
+
+
+def _haversine_m(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+) -> float:
+    """Return distance in metres between two lat/lng points."""
+
+    R = 6_371_000
+
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(phi1)
+        * math.cos(phi2)
+        * math.sin(dlam / 2) ** 2
+    )
+
+    return R * 2 * math.atan2(
+        math.sqrt(a),
+        math.sqrt(1 - a),
+    )
+
+
+def _caregiver_can_access_patient(
+    patient_id: str,
+    user_id: str,
+) -> bool:
+    """Check if a caregiver has an active link to a patient."""
+
+    link = caregiver_links_collection.find_one(
+        {
+            "caregiver_id": user_id,
+            "patient_id": patient_id,
+            "status": "active",
+        }
+    )
+    return link is not None
+
+
+@app.post(
+    "/journeys",
+    status_code=status.HTTP_201_CREATED,
+)
+def create_journey(
+    body: JourneyCreate,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Caregiver creates a journey for a linked patient."""
+
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Only caregivers can create journeys",
+        )
+
+    patient_id = body.patient_id.strip()
+    object_id(patient_id, "patient ID")
+
+    patient = patients_collection.find_one(
+        {"_id": object_id(patient_id, "patient ID")}
+    )
+
+    if not patient:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found",
+        )
+
+    if not _caregiver_can_access_patient(
+        patient_id,
+        current_user["user_id"],
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Patient is not linked to this caregiver",
+        )
+
+    result = journeys_collection.insert_one(
+        {
+            "patient_id": patient_id,
+            "caregiver_id": current_user["user_id"],
+            "destination_name": body.destination_name,
+            "destination_address": body.destination_address,
+            "destination_latitude": body.destination_latitude,
+            "destination_longitude": body.destination_longitude,
+            "purpose": body.purpose,
+            "expected_duration_minutes": body.expected_duration_minutes,
+            "status": "active",
+            "started_at": now(),
+            "arrival_at": None,
+            "completed_at": None,
+            "last_latitude": None,
+            "last_longitude": None,
+            "last_location_at": None,
+            "last_prompt_at": None,
+            "distance_to_destination_m": None,
+            "created_at": now(),
+        }
+    )
+
+    return {
+        "journey_id": str(result.inserted_id),
+        "patient_id": patient_id,
+        "destination_name": body.destination_name,
+        "purpose": body.purpose,
+        "status": "active",
+    }
+
+
+@app.get(
+    "/journeys/active",
+)
+def get_active_journey(
+    patient_id: str = Query(default=None),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Return the active journey for a patient.
+
+    If patient_id is provided, used by caregivers.
+    If not, used by the patient themselves.
+    """
+
+    if current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {"user_id": current_user["user_id"]}
+        )
+        if not patient:
+            raise HTTPException(
+                status_code=404,
+                detail="Patient profile not found",
+            )
+        pid = str(patient["_id"])
+
+    elif current_user["role"] == "caregiver":
+        if not patient_id:
+            raise HTTPException(
+                status_code=400,
+                detail="patient_id required for caregiver",
+            )
+        pid = patient_id.strip()
+
+        if not _caregiver_can_access_patient(
+            pid,
+            current_user["user_id"],
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Patient is not linked to this caregiver",
+            )
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
+
+    journey = journeys_collection.find_one(
+        {
+            "patient_id": pid,
+            "status": {"$in": ["active", "near_destination", "arrived"]},
+        },
+        sort=[("created_at", -1)],
+    )
+
+    if not journey:
+        return {"journey": None}
+
+    return {
+        "journey": serialise(journey),
+    }
+
+
+@app.get(
+    "/journeys/{journey_id}",
+)
+def get_journey(
+    journey_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Get a specific journey."""
+
+    journey = journeys_collection.find_one(
+        {"_id": object_id(journey_id, "journey ID")}
+    )
+
+    if not journey:
+        raise HTTPException(
+            status_code=404,
+            detail="Journey not found",
+        )
+
+    pid = journey["patient_id"]
+
+    if current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {"user_id": current_user["user_id"]}
+        )
+        if not patient or str(patient["_id"]) != pid:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+
+    elif current_user["role"] == "caregiver":
+        if not _caregiver_can_access_patient(
+            pid,
+            current_user["user_id"],
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
+
+    return serialise(journey)
+
+
+@app.post(
+    "/journeys/{journey_id}/location",
+)
+def update_journey_location(
+    journey_id: str,
+    body: JourneyLocationUpdate,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Patient sends their current GPS location."""
+
+    journey = journeys_collection.find_one(
+        {"_id": object_id(journey_id, "journey ID")}
+    )
+
+    if not journey:
+        raise HTTPException(
+            status_code=404,
+            detail="Journey not found",
+        )
+
+    pid = journey["patient_id"]
+
+    if current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {"user_id": current_user["user_id"]}
+        )
+        if not patient or str(patient["_id"]) != pid:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the patient can send location updates",
+        )
+
+    if journey["status"] not in ("active", "near_destination"):
+        return {
+            "status": journey["status"],
+            "message": "Journey is no longer active.",
+        }
+
+    dist = _haversine_m(
+        body.latitude,
+        body.longitude,
+        journey["destination_latitude"],
+        journey["destination_longitude"],
+    )
+
+    new_status = "active"
+    arrival_at = journey.get("arrival_at")
+
+    if dist <= ARRIVAL_RADIUS_M:
+        new_status = "arrived"
+        if arrival_at is None:
+            arrival_at = now()
+    elif dist <= DESTINATION_RADIUS_M:
+        new_status = "near_destination"
+
+    update_fields = {
+        "last_latitude": body.latitude,
+        "last_longitude": body.longitude,
+        "last_location_at": now(),
+        "distance_to_destination_m": round(dist),
+        "status": new_status,
+    }
+
+    if arrival_at is not None:
+        update_fields["arrival_at"] = arrival_at
+
+    journeys_collection.update_one(
+        {"_id": journey["_id"]},
+        {"$set": update_fields},
+    )
+
+    return {
+        "status": new_status,
+        "distance_to_destination_m": round(dist),
+    }
+
+
+@app.post(
+    "/journeys/{journey_id}/complete",
+)
+def complete_journey(
+    journey_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Mark a journey as completed."""
+
+    journey = journeys_collection.find_one(
+        {"_id": object_id(journey_id, "journey ID")}
+    )
+
+    if not journey:
+        raise HTTPException(
+            status_code=404,
+            detail="Journey not found",
+        )
+
+    pid = journey["patient_id"]
+
+    if current_user["role"] == "caregiver":
+        if not _caregiver_can_access_patient(
+            pid,
+            current_user["user_id"],
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+    elif current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {"user_id": current_user["user_id"]}
+        )
+        if not patient or str(patient["_id"]) != pid:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
+
+    journeys_collection.update_one(
+        {"_id": journey["_id"]},
+        {
+            "$set": {
+                "status": "completed",
+                "completed_at": now(),
+            }
+        },
+    )
+
+    return {
+        "journey_id": journey_id,
+        "status": "completed",
+    }
+
+
+@app.post(
+    "/journeys/{journey_id}/cancel",
+)
+def cancel_journey(
+    journey_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Cancel an active journey."""
+
+    journey = journeys_collection.find_one(
+        {"_id": object_id(journey_id, "journey ID")}
+    )
+
+    if not journey:
+        raise HTTPException(
+            status_code=404,
+            detail="Journey not found",
+        )
+
+    pid = journey["patient_id"]
+
+    if current_user["role"] == "caregiver":
+        if not _caregiver_can_access_patient(
+            pid,
+            current_user["user_id"],
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+    elif current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {"user_id": current_user["user_id"]}
+        )
+        if not patient or str(patient["_id"]) != pid:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
+
+    journeys_collection.update_one(
+        {"_id": journey["_id"]},
+        {
+            "$set": {
+                "status": "cancelled",
+                "completed_at": now(),
+            }
+        },
+    )
+
+    return {
+        "journey_id": journey_id,
+        "status": "cancelled",
     }

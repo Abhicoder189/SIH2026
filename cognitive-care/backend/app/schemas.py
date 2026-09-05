@@ -115,3 +115,21 @@ class MemoryUpdate(BaseModel):
     tags: list[str] | None = None
     priority: int | None = Field(default=None, ge=0, le=10)
     active: bool | None = None
+
+
+# ============================================================
+# JOURNEY ASSIST
+# ============================================================
+
+class JourneyCreate(BaseModel):
+    patient_id: str
+    destination_name: str = Field(..., min_length=2, max_length=150)
+    destination_address: str = Field(default="", max_length=300)
+    destination_latitude: float = Field(..., ge=-90, le=90)
+    destination_longitude: float = Field(..., ge=-180, le=180)
+    purpose: str = Field(..., min_length=2, max_length=300)
+    expected_duration_minutes: int = Field(default=45, ge=5, le=480)
+
+class JourneyLocationUpdate(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)

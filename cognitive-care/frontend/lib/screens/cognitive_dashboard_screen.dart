@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import 'caregiver_memory_manager_screen.dart';
+import 'caregiver_journey_screen.dart';
 import 'login_screen.dart';
 
 class CognitiveDashboardScreen extends StatefulWidget {
@@ -45,22 +46,28 @@ class _CognitiveDashboardScreenState
     }
 
     try {
-      final results = await Future.wait([
-        ApiService.caregiverPatients(
+      List<dynamic> activePatients = [];
+      List<dynamic> myRequests = [];
+
+      try {
+        activePatients = await ApiService.caregiverPatients(
           widget.token,
-        ),
-        ApiService.caregiverMyRequests(
+        );
+      } catch (_) {}
+
+      try {
+        myRequests = await ApiService.caregiverMyRequests(
           widget.token,
-        ),
-      ]);
+        );
+      } catch (_) {}
 
       if (!mounted) {
         return;
       }
 
       setState(() {
-        patients = results[0];
-        pendingRequests = results[1];
+        patients = activePatients;
+        pendingRequests = myRequests;
         loading = false;
         error = null;
       });
@@ -82,36 +89,59 @@ class _CognitiveDashboardScreenState
   Future<Map<String, dynamic>?> _loadPatientData(
     String patientId,
   ) async {
-    try {
-      final results = await Future.wait([
-        ApiService.getCognitiveProfile(
-          widget.token,
-          patientId,
-        ),
-        ApiService.getDailyActivity(
-          widget.token,
-          patientId,
-        ),
-        ApiService.getAlerts(
-          widget.token,
-          patientId,
-          caregiver: true,
-        ),
-        ApiService.getDifficultyRecommendation(
-          widget.token,
-          patientId,
-        ),
-      ]);
+    Map<String, dynamic> analytics = {};
 
+    try {
+      final patientsResult = await ApiService.caregiverPatients(
+        widget.token,
+      );
+
+      for (final p in patientsResult) {
+        final map = Map<String, dynamic>.from(p);
+        if (map['patient_id']?.toString() == patientId) {
+          analytics = _map(map['analytics']);
+          break;
+        }
+      }
+    } catch (_) {}
+
+    dynamic activity;
+    try {
+      activity = await ApiService.getDailyActivity(
+        widget.token,
+        patientId,
+      );
+    } catch (_) {}
+
+    dynamic recommendation;
+    try {
+      recommendation = await ApiService.getDifficultyRecommendation(
+        widget.token,
+        patientId,
+      );
+    } catch (_) {}
+
+    final byGameType = _map(analytics['by_game_type']);
+
+    Map<String, dynamic> normalizeGame(Map<String, dynamic> raw) {
       return {
-        'profile': results[0],
-        'activity': results[1],
-        'alerts': results[2],
-        'recommendation': results[3],
+        'accuracy': raw['average_accuracy'] ?? 0,
+        'difficulty': raw['current_difficulty'] ?? 1,
       };
-    } catch (_) {
-      return null;
     }
+
+    return {
+      'profile': {
+        'total_sessions': analytics['total_sessions'] ?? 0,
+        'overall_score': analytics['average_accuracy'] ?? 0,
+        'memory': normalizeGame(_map(byGameType['memory'])),
+        'attention': normalizeGame(_map(byGameType['attention'])),
+        'pattern': normalizeGame(_map(byGameType['pattern'])),
+      },
+      'activity': activity ?? {},
+      'alerts': {'alerts': []},
+      'recommendation': recommendation ?? {},
+    };
   }
 
   double _number(dynamic value) {
@@ -943,6 +973,39 @@ class _CognitiveDashboardScreenState
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.pink.shade50,
                 foregroundColor: Colors.pink.shade700,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CaregiverJourneyScreen(
+                      token: widget.token,
+                      patientId: patientId,
+                      patientName: patientName,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.explore, size: 22),
+              label: const Text(
+                'JOURNEY',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade50,
+                foregroundColor: Colors.blue.shade700,
                 padding: const EdgeInsets.symmetric(
                   vertical: 14,
                 ),

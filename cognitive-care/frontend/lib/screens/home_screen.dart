@@ -4,10 +4,11 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 
 import 'attention_game_screen.dart';
-import 'caregiver_dashboard_screen.dart';
+import 'cognitive_dashboard_screen.dart';
 import 'login_screen.dart';
 import 'memory_game_screen.dart';
 import 'memory_moment_screen.dart';
+import 'journey_assist_screen.dart';
 import 'notification_feed_screen.dart';
 import 'pattern_game_screen.dart';
 import 'preferences_screen.dart';
@@ -876,7 +877,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     if (widget.role == 'caregiver') {
-      return CaregiverDashboardScreen(
+      return CognitiveDashboardScreen(
         token: widget.token,
       );
     }
@@ -948,6 +949,10 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 18),
 
           _memoryMomentCard(),
+
+          const SizedBox(height: 18),
+
+          _journeyCard(),
 
           const SizedBox(height: 24),
 
@@ -1374,6 +1379,69 @@ class _HomeScreenState extends State<HomeScreen> {
               Icon(
                 Icons.chevron_right,
                 color: Colors.pink.shade300,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // JOURNEY CARD
+  // ============================================================
+
+  Widget _journeyCard() {
+    return Card(
+      elevation: 0,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          _open(
+            JourneyAssistScreen(
+              token: widget.token,
+              patientId: _patientId(),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 27,
+                backgroundColor: Colors.blue.shade50,
+                child: Icon(
+                  Icons.explore,
+                  size: 28,
+                  color: Colors.blue.shade400,
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Journey',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 5),
+                    Text(
+                      'Get help when you need to go somewhere',
+                      style: TextStyle(
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: Colors.blue.shade300,
               ),
             ],
           ),

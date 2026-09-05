@@ -701,6 +701,110 @@ class ApiService {
   }
 
   // ============================================================
+  // JOURNEY ASSIST
+  // ============================================================
+
+  static Future<Map<String, dynamic>> createJourney({
+    required String token,
+    required String patientId,
+    required String destinationName,
+    String destinationAddress = '',
+    required double destinationLatitude,
+    required double destinationLongitude,
+    required String purpose,
+    int expectedDurationMinutes = 45,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/journeys',
+      token: token,
+      body: {
+        'patient_id': patientId,
+        'destination_name': destinationName,
+        'destination_address': destinationAddress,
+        'destination_latitude': destinationLatitude,
+        'destination_longitude': destinationLongitude,
+        'purpose': purpose,
+        'expected_duration_minutes': expectedDurationMinutes,
+      },
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> getActiveJourney(
+    String token, {
+    String? patientId,
+  }) async {
+    final params = patientId != null ? '?patient_id=$patientId' : '';
+    final response = await _request(
+      'GET',
+      '/journeys/active$params',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> getJourney(
+    String token,
+    String journeyId,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/journeys/$journeyId',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> updateJourneyLocation({
+    required String token,
+    required String journeyId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/journeys/$journeyId/location',
+      token: token,
+      body: {
+        'latitude': latitude,
+        'longitude': longitude,
+      },
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> completeJourney(
+    String token,
+    String journeyId,
+  ) async {
+    final response = await _request(
+      'POST',
+      '/journeys/$journeyId/complete',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> cancelJourney(
+    String token,
+    String journeyId,
+  ) async {
+    final response = await _request(
+      'POST',
+      '/journeys/$journeyId/cancel',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  // ============================================================
   // OFFLINE SYNC
   // ============================================================
 
