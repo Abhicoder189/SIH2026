@@ -556,6 +556,139 @@ class ApiService {
   }
 
   // ============================================================
+  // MEMORY MOMENTS
+  // ============================================================
+
+  static Future<Map<String, dynamic>> createMemory({
+    required String token,
+    required String patientId,
+    required String title,
+    String description = '',
+    List<String> people = const [],
+    String place = '',
+    int? year,
+    List<String> tags = const [],
+    int priority = 0,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/memories',
+      token: token,
+      body: {
+        'patient_id': patientId,
+        'title': title,
+        'description': description,
+        'people': people,
+        'place': place,
+        'year': year,
+        'tags': tags,
+        'priority': priority,
+      },
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<List<dynamic>> listMemories(
+    String token,
+    String patientId,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/memories?patient_id=$patientId',
+      token: token,
+    );
+
+    return List<dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> getTodayMemory(
+    String token,
+    String patientId,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/memories/today?patient_id=$patientId',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> getMemory(
+    String token,
+    String memoryId,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/memories/$memoryId',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> updateMemory({
+    required String token,
+    required String memoryId,
+    String? title,
+    String? description,
+    List<String>? people,
+    String? place,
+    int? year,
+    List<String>? tags,
+    int? priority,
+    bool? active,
+  }) async {
+    final body = <String, dynamic>{};
+
+    if (title != null) body['title'] = title;
+    if (description != null) body['description'] = description;
+    if (people != null) body['people'] = people;
+    if (place != null) body['place'] = place;
+    if (year != null) body['year'] = year;
+    if (tags != null) body['tags'] = tags;
+    if (priority != null) body['priority'] = priority;
+    if (active != null) body['active'] = active;
+
+    final response = await _request(
+      'PUT',
+      '/memories/$memoryId',
+      token: token,
+      body: body,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> deleteMemory(
+    String token,
+    String memoryId,
+  ) async {
+    final response = await _request(
+      'DELETE',
+      '/memories/$memoryId',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> memoryInteraction({
+    required String token,
+    required String memoryId,
+    required String action,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/memories/$memoryId/interact?action=$action',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  // ============================================================
   // OFFLINE SYNC
   // ============================================================
 

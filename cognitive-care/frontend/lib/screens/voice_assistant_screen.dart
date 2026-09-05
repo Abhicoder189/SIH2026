@@ -1,11 +1,11 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
-import '../services/language_service.dart';
+import '../l10n/language_service.dart';
+
 import 'attention_game_screen.dart';
 import 'memory_game_screen.dart';
 import 'pattern_game_screen.dart';
@@ -34,6 +34,7 @@ class _VoiceAssistantScreenState
   bool _isListening = false;
   bool _isProcessing = false;
   bool _speechAvailable = false;
+  bool _ttsAvailable = false;
 
   String _recognizedText = '';
   String _responseText = 'Tap the microphone and speak.';
@@ -44,6 +45,7 @@ class _VoiceAssistantScreenState
       LanguageService.defaultLanguage;
 
   List<stt.LocaleName> _availableLocales = [];
+  List<String> _availableTtsLanguages = [];
 
   @override
   void initState() {
@@ -56,7 +58,10 @@ class _VoiceAssistantScreenState
     await _tts.setVolume(1.0);
     await _tts.setPitch(1.0);
 
-    final available = await _speech.initialize(
+    final savedLanguage =
+        await LanguageService.getVoiceLanguage();
+
+    final speechAvailable = await _speech.initialize(
       onStatus: (status) {
         if (!mounted) return;
 
@@ -79,119 +84,309 @@ class _VoiceAssistantScreenState
 
     if (!mounted) return;
 
-    _availableLocales = await _speech.locales();
+    final speechLocales = await _speech.locales();
+
+    List<String> ttsLanguages = [];
+
+    try {
+      final languages = await _tts.getLanguages;
+
+      if (languages is List) {
+        ttsLanguages = languages
+            .map((language) => language.toString())
+            .toList();
+      }
+    } catch (_) {
+      ttsLanguages = [];
+    }
+
+    if (!mounted) return;
 
     setState(() {
-      _speechAvailable = available;
+      _selectedLanguage = savedLanguage;
+      _availableLocales = speechLocales;
+      _availableTtsLanguages = ttsLanguages;
+      _speechAvailable = speechAvailable;
     });
 
-    await _setTtsLanguage();
+    await _configureSelectedLanguage(showMessage: false);
   }
 
-  Future<void> _setTtsLanguage() async {
+  String _normalizeLocale(String locale) {
+    return locale
+        .trim()
+        .replaceAll('_', '-')
+        .toLowerCase();
+  }
+
+  bool _localeMatches(
+    String available,
+    String requested,
+  ) {
+    final a = _normalizeLocale(available);
+    final r = _normalizeLocale(requested);
+
+    if (a == r) {
+      return true;
+    }
+
+    return a.split('-').first == r.split('-').first;
+  }
+
+  bool _isTtsLanguageAvailable(String locale) {
+    if (_availableTtsLanguages.isEmpty) {
+      return false;
+    }
+
+    return _availableTtsLanguages.any(
+      (available) => _localeMatches(
+        available,
+        locale,
+      ),
+    );
+  }
+
+  String? _getAvailableTtsLocale() {
+    final requested = _selectedLanguage.ttsLocale;
+
+    for (final language in _availableTtsLanguages) {
+      if (_normalizeLocale(language) ==
+          _normalizeLocale(requested)) {
+        return language;
+      }
+    }
+
+    for (final language in _availableTtsLanguages) {
+      if (_localeMatches(
+        language,
+        requested,
+      )) {
+        return language;
+      }
+    }
+
+    return null;
+  }
+
+  Future<bool> _setTtsLanguage() async {
+    final requestedLocale =
+        _selectedLanguage.ttsLocale;
+
+    if (!_isTtsLanguageAvailable(requestedLocale)) {
+      if (mounted) {
+        setState(() {
+          _ttsAvailable = false;
+        });
+      }
+
+      return false;
+    }
+
+    final actualLocale =
+        _getAvailableTtsLocale();
+
+    if (actualLocale == null) {
+      if (mounted) {
+        setState(() {
+          _ttsAvailable = false;
+        });
+      }
+
+      return false;
+    }
+
     try {
-      await _tts.setLanguage(_selectedLanguage.ttsLocale);
+      await _tts.setLanguage(actualLocale);
+
+      if (mounted) {
+        setState(() {
+          _ttsAvailable = true;
+        });
+      }
+
+      return true;
     } catch (_) {
-      await _tts.setLanguage('en-IN');
+      if (mounted) {
+        setState(() {
+          _ttsAvailable = false;
+        });
+      }
+
+      return false;
     }
   }
 
-  String _getBestSttLocale() {
-    final requested = _selectedLanguage.sttLocale;
+  String? _getBestSttLocale() {
+    if (_availableLocales.isEmpty) {
+      return null;
+    }
+
+    final requested =
+        _selectedLanguage.sttLocale;
 
     for (final locale in _availableLocales) {
-      if (locale.localeId.toLowerCase() ==
-          requested.toLowerCase()) {
+      if (_normalizeLocale(locale.localeId) ==
+          _normalizeLocale(requested)) {
         return locale.localeId;
       }
     }
 
-    final languageCode =
-        requested.split('_').first.toLowerCase();
-
     for (final locale in _availableLocales) {
-      if (locale.localeId
-          .toLowerCase()
-          .startsWith(languageCode)) {
+      if (_localeMatches(
+        locale.localeId,
+        requested,
+      )) {
         return locale.localeId;
       }
     }
 
-    return 'en_IN';
+    return null;
   }
 
-  Future<void> _selectLanguage(VoiceLanguage language) async {
-    if (_isListening || _isProcessing) return;
+  bool _isSttLanguageAvailable() {
+    return _getBestSttLocale() != null;
+  }
+
+  Future<void> _configureSelectedLanguage({
+    bool showMessage = true,
+  }) async {
+    final sttAvailable =
+        _isSttLanguageAvailable();
+
+    final ttsAvailable =
+        await _setTtsLanguage();
+
+    if (!mounted || !showMessage) return;
+
+    if (!sttAvailable && !ttsAvailable) {
+      setState(() {
+        _responseText =
+            '${_selectedLanguage.name} is not available '
+            'for voice input or voice output on this device.';
+      });
+      return;
+    }
+
+    if (!sttAvailable) {
+      setState(() {
+        _responseText =
+            '${_selectedLanguage.name} is not available '
+            'for speech recognition on this device.';
+      });
+      return;
+    }
+
+    if (!ttsAvailable) {
+      setState(() {
+        _responseText =
+            '${_selectedLanguage.name} speech recognition '
+            'is available, but voice output is not available '
+            'on this device.';
+      });
+      return;
+    }
+
+    setState(() {
+      _responseText =
+          '${_selectedLanguage.name} selected. '
+          'Tap the microphone and speak.';
+    });
+  }
+
+  Future<void> _selectLanguage(
+    VoiceLanguage language,
+  ) async {
+    if (_isListening || _isProcessing) {
+      return;
+    }
 
     setState(() {
       _selectedLanguage = language;
       _recognizedText = '';
+      _responseText =
+          'Checking ${language.name} voice support...';
     });
+
+    await LanguageService.saveVoiceLanguage(
+      language,
+    );
+
+    await _configureSelectedLanguage(
+      showMessage: true,
+    );
+  }
+
+  Future<void> _startListening() async {
+    if (_isProcessing || _isListening) {
+      return;
+    }
+
+    if (!_speechAvailable) {
+      setState(() {
+        _responseText =
+            'Speech recognition is not available '
+            'on this device.';
+      });
+      return;
+    }
+
+    final locale = _getBestSttLocale();
+
+    if (locale == null) {
+      setState(() {
+        _responseText =
+            '${_selectedLanguage.name} speech recognition '
+            'is not available on this device.';
+      });
+      return;
+    }
 
     await _setTtsLanguage();
 
-    final requestedLocale = language.sttLocale;
-    final actualLocale = _getBestSttLocale();
+    setState(() {
+      _isListening = true;
+      _recognizedText = '';
+      _responseText =
+          'Listening in ${_selectedLanguage.name}...';
+    });
 
-    if (!_availableLocales.any(
-      (locale) =>
-          locale.localeId.toLowerCase() ==
-          requestedLocale.toLowerCase(),
-    )) {
+    try {
+      await _speech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          localeId: locale,
+          listenMode: stt.ListenMode.confirmation,
+        ),
+        onResult: (result) {
+          if (!mounted) return;
+
+          setState(() {
+            _recognizedText =
+                result.recognizedWords;
+          });
+
+          if (result.finalResult &&
+              result.recognizedWords
+                  .trim()
+                  .isNotEmpty) {
+            _processCommand(
+              result.recognizedWords,
+            );
+          }
+        },
+      );
+    } catch (_) {
+      if (!mounted) return;
+
       setState(() {
+        _isListening = false;
         _responseText =
-            '${language.name} voice recognition is not '
-            'available on this device. Using $actualLocale '
-            'instead.';
-      });
-    } else {
-      setState(() {
-        _responseText =
-            '${language.name} selected. Tap the microphone '
-            'and speak.';
+            'Unable to start speech recognition. '
+            'Please try again.';
       });
     }
   }
 
- Future<void> _startListening() async {
-  if (_isProcessing || _isListening) return;
-
-  if (!_speechAvailable) {
-    setState(() {
-      _responseText =
-          'Speech recognition is not available on this device.';
-    });
-    return;
-  }
-
-  final locale = _getBestSttLocale();
-
-  setState(() {
-    _isListening = true;
-    _recognizedText = '';
-    _responseText =
-        'Listening in ${_selectedLanguage.name}...';
-  });
-
-  await _speech.listen(
-    listenOptions: stt.SpeechListenOptions(
-      localeId: locale,
-      listenMode: stt.ListenMode.confirmation,
-    ),
-    onResult: (result) {
-      if (!mounted) return;
-
-      setState(() {
-        _recognizedText = result.recognizedWords;
-      });
-
-      if (result.finalResult &&
-          result.recognizedWords.trim().isNotEmpty) {
-        _processCommand(result.recognizedWords);
-      }
-    },
-  );
-} Future<void> _stopListening() async {
+  Future<void> _stopListening() async {
     await _speech.stop();
 
     if (!mounted) return;
@@ -225,7 +420,8 @@ class _VoiceAssistantScreenState
         _conversationHistory,
       );
 
-      final result = await ApiService.voiceCommand(
+      final result =
+          await ApiService.voiceCommand(
         token,
         cleanText,
         language: _selectedLanguage.code,
@@ -233,18 +429,17 @@ class _VoiceAssistantScreenState
       );
 
       final intent =
-          result['intent']?.toString() ?? 'unknown';
+          result['intent']?.toString() ??
+          'unknown';
 
       final response =
           result['response']?.toString() ??
-              'I did not understand that.';
+          'I did not understand that.';
 
       final responseLanguage =
           result['language']?.toString() ??
-              _selectedLanguage.code;
+          _selectedLanguage.code;
 
-      // Save the conversation after Gemini has interpreted
-      // the current request.
       _conversationHistory.add({
         'role': 'user',
         'content': cleanText,
@@ -255,7 +450,6 @@ class _VoiceAssistantScreenState
         'content': response,
       });
 
-      // Keep the last 5 exchanges = 10 messages.
       while (_conversationHistory.length > 10) {
         _conversationHistory.removeAt(0);
       }
@@ -267,18 +461,10 @@ class _VoiceAssistantScreenState
         _responseText = response;
       });
 
-      await _tts.stop();
-
-      final languageForTts =
-          _getTtsLocale(responseLanguage);
-
-      try {
-        await _tts.setLanguage(languageForTts);
-      } catch (_) {
-        await _setTtsLanguage();
-      }
-
-      await _tts.speak(response);
+      await _speakResponse(
+        response,
+        responseLanguage,
+      );
 
       await Future.delayed(
         const Duration(milliseconds: 700),
@@ -287,19 +473,18 @@ class _VoiceAssistantScreenState
       if (!mounted) return;
 
       await _handleIntent(intent);
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
 
+      final errorMessage =
+          _getErrorMessage();
+
       setState(() {
-        _responseText =
-            'Something went wrong. Please try again.';
+        _responseText = errorMessage;
       });
 
-      await _tts.stop();
-      await _setTtsLanguage();
-
-      await _tts.speak(
-        'Something went wrong. Please try again.',
+      await _speakSelectedLanguage(
+        errorMessage,
       );
     } finally {
       if (mounted) {
@@ -310,7 +495,26 @@ class _VoiceAssistantScreenState
     }
   }
 
-  String _getTtsLocale(String language) {
+  String _getErrorMessage() {
+    switch (_selectedLanguage.code) {
+      case 'hi':
+        return 'कुछ गलत हो गया। कृपया फिर से प्रयास करें.';
+
+      case 'bn':
+        return 'কিছু ভুল হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।';
+
+      case 'as':
+        return 'কিবা ভুল হৈছে। অনুগ্ৰহ কৰি পুনৰ চেষ্টা কৰক।';
+
+      case 'ne':
+        return 'केही गलत भयो। कृपया फेरि प्रयास गर्नुहोस्।';
+
+      default:
+        return 'Something went wrong. Please try again.';
+    }
+  }
+
+  String? _getTtsLocale(String language) {
     switch (language.toLowerCase()) {
       case 'hi':
         return 'hi-IN';
@@ -330,28 +534,131 @@ class _VoiceAssistantScreenState
       case 'kha':
         return 'kha-IN';
 
-      case 'grt':
-        return 'grt-IN';
-
       case 'trp':
         return 'trp-IN';
 
-      case 'nag':
-        return 'nag-IN';
+      case 'ne':
+        return 'ne-NP';
+
+      case 'brx':
+        return 'brx-IN';
 
       case 'en':
-      default:
         return 'en-IN';
+
+      default:
+        return null;
     }
   }
 
-  Future<void> _handleIntent(String intent) async {
+  Future<void> _speakResponse(
+    String response,
+    String responseLanguage,
+  ) async {
+    await _tts.stop();
+
+    final requestedLocale =
+        _getTtsLocale(responseLanguage) ??
+        _selectedLanguage.ttsLocale;
+
+    if (!_isTtsLanguageAvailable(
+      requestedLocale,
+    )) {
+      if (mounted) {
+        setState(() {
+          _ttsAvailable = false;
+          _responseText =
+              '$response\n\n'
+              'Voice output for '
+              '${_selectedLanguage.name} is not '
+              'available on this device.';
+        });
+      }
+
+      return;
+    }
+
+    final availableLocale =
+        _getMatchingTtsLocale(
+      requestedLocale,
+    );
+
+    if (availableLocale == null) {
+      return;
+    }
+
+    try {
+      await _tts.setLanguage(
+        availableLocale,
+      );
+
+      if (mounted) {
+        setState(() {
+          _ttsAvailable = true;
+        });
+      }
+
+      await _tts.speak(response);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _ttsAvailable = false;
+        });
+      }
+    }
+  }
+
+  String? _getMatchingTtsLocale(
+    String requested,
+  ) {
+    for (final language
+        in _availableTtsLanguages) {
+      if (_normalizeLocale(language) ==
+          _normalizeLocale(requested)) {
+        return language;
+      }
+    }
+
+    for (final language
+        in _availableTtsLanguages) {
+      if (_localeMatches(
+        language,
+        requested,
+      )) {
+        return language;
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> _speakSelectedLanguage(
+    String text,
+  ) async {
+    await _tts.stop();
+
+    final available =
+        await _setTtsLanguage();
+
+    if (!available) return;
+
+    try {
+      await _tts.speak(text);
+    } catch (_) {
+      // Do not silently switch to English.
+    }
+  }
+
+  Future<void> _handleIntent(
+    String intent,
+  ) async {
     switch (intent) {
       case 'start_memory':
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => MemoryGameScreen(
+            builder: (_) =>
+                MemoryGameScreen(
               patientId: widget.patientId,
               token: widget.token,
             ),
@@ -363,7 +670,8 @@ class _VoiceAssistantScreenState
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => AttentionGameScreen(
+            builder: (_) =>
+                AttentionGameScreen(
               patientId: widget.patientId,
               token: widget.token,
             ),
@@ -375,7 +683,8 @@ class _VoiceAssistantScreenState
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => PatternGameScreen(
+            builder: (_) =>
+                PatternGameScreen(
               patientId: widget.patientId,
               token: widget.token,
             ),
@@ -387,7 +696,8 @@ class _VoiceAssistantScreenState
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => NotificationFeedScreen(
+            builder: (_) =>
+                NotificationFeedScreen(
               patientId: widget.patientId,
               token: widget.token,
             ),
@@ -395,12 +705,68 @@ class _VoiceAssistantScreenState
         );
         break;
 
-      case 'help':
-      case 'repeat':
-      case 'unknown':
       default:
         break;
     }
+  }
+
+  String _exampleCommands() {
+    switch (_selectedLanguage.code) {
+      case 'hi':
+        return '"मेमोरी गेम शुरू करो"\n'
+            '"ध्यान गेम शुरू करो"\n'
+            '"पैटर्न गेम शुरू करो"\n'
+            '"मेरे रिमाइंडर दिखाओ"';
+
+      case 'bn':
+        return '"মেমোরি গেম শুরু করো"\n'
+            '"মনোযোগ গেম শুরু করো"\n'
+            '"প্যাটার্ন গেম শুরু করো"\n'
+            '"আমার রিমাইন্ডার দেখাও"';
+
+      case 'as':
+        return '"মেমৰি খেল আৰম্ভ কৰক"\n'
+            '"মনোযোগ খেল আৰম্ভ কৰক"\n'
+            '"আৰ্হি খেল আৰম্ভ কৰক"\n'
+            '"মোৰ সোঁৱৰণী দেখুৱাওক"';
+
+      case 'ne':
+        return '"मेमोरी खेल सुरु गर्नुहोस्"\n'
+            '"ध्यान खेल सुरु गर्नुहोस्"\n'
+            '"प्याटर्न खेल सुरु गर्नुहोस्"\n'
+            '"मेरा रिमाइन्डर देखाउनुहोस्"';
+
+      default:
+        return '"Play memory"\n'
+            '"Play attention"\n'
+            '"Play pattern"\n'
+            '"Show my reminders"';
+    }
+  }
+
+  String _supportStatus() {
+    final sttSupported =
+        _isSttLanguageAvailable();
+
+    final ttsSupported = _ttsAvailable;
+
+    if (sttSupported && ttsSupported) {
+      return '${_selectedLanguage.name}: '
+          'voice input ✓  voice output ✓';
+    }
+
+    if (sttSupported) {
+      return '${_selectedLanguage.name}: '
+          'voice input ✓  voice output unavailable';
+    }
+
+    if (ttsSupported) {
+      return '${_selectedLanguage.name}: '
+          'voice input unavailable  voice output ✓';
+    }
+
+    return '${_selectedLanguage.name}: '
+        'voice input unavailable  voice output unavailable';
   }
 
   @override
@@ -412,6 +778,9 @@ class _VoiceAssistantScreenState
 
   @override
   Widget build(BuildContext context) {
+    final sttSupported =
+        _isSttLanguageAvailable();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -426,7 +795,8 @@ class _VoiceAssistantScreenState
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment:
+                  MainAxisAlignment.center,
               children: [
                 const Icon(
                   Icons.record_voice_over,
@@ -454,7 +824,8 @@ class _VoiceAssistantScreenState
                         .textTheme
                         .titleMedium
                         ?.copyWith(
-                          fontWeight: FontWeight.bold,
+                          fontWeight:
+                              FontWeight.bold,
                         ),
                   ),
                 ),
@@ -465,14 +836,18 @@ class _VoiceAssistantScreenState
                   initialValue: _selectedLanguage,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.language),
+                    prefixIcon:
+                        Icon(Icons.language),
                   ),
-                  items: LanguageService.supportedLanguages
+                  items: LanguageService
+                      .supportedLanguages
                       .map(
                         (language) =>
-                            DropdownMenuItem<VoiceLanguage>(
+                            DropdownMenuItem<
+                                VoiceLanguage>(
                           value: language,
-                          child: Text(language.name),
+                          child:
+                              Text(language.name),
                         ),
                       )
                       .toList(),
@@ -483,30 +858,47 @@ class _VoiceAssistantScreenState
                   },
                 ),
 
+                const SizedBox(height: 15),
+
+                Card(
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Icon(
+                          sttSupported
+                              ? Icons.mic
+                              : Icons.mic_off,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _supportStatus(),
+                            style:
+                                const TextStyle(
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
                 const SizedBox(height: 25),
 
-                Text(
+                const Text(
                   'Try saying:',
                   style: TextStyle(
                     fontSize: 20,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface,
                   ),
                 ),
 
                 const SizedBox(height: 12),
 
                 Text(
-                  _selectedLanguage.code == 'hi'
-                      ? '"मेमोरी गेम शुरू करो"\n'
-                          '"ध्यान गेम शुरू करो"\n'
-                          '"पैटर्न गेम शुरू करो"\n'
-                          '"मेरे रिमाइंडर दिखाओ"'
-                      : '"Play memory"\n'
-                          '"Play attention"\n'
-                          '"Play pattern"\n'
-                          '"Show my reminders"',
+                  _exampleCommands(),
                   style: const TextStyle(
                     fontSize: 19,
                   ),
@@ -518,23 +910,27 @@ class _VoiceAssistantScreenState
                 if (_recognizedText.isNotEmpty)
                   Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(16),
+                      padding:
+                          const EdgeInsets.all(16),
                       child: Column(
                         children: [
                           const Text(
                             'You said:',
                             style: TextStyle(
-                              fontWeight: FontWeight.bold,
+                              fontWeight:
+                                  FontWeight.bold,
                               fontSize: 18,
                             ),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             _recognizedText,
-                            style: const TextStyle(
+                            style:
+                                const TextStyle(
                               fontSize: 20,
                             ),
-                            textAlign: TextAlign.center,
+                            textAlign:
+                                TextAlign.center,
                           ),
                         ],
                       ),
@@ -545,23 +941,27 @@ class _VoiceAssistantScreenState
 
                 Card(
                   child: Padding(
-                    padding: const EdgeInsets.all(16),
+                    padding:
+                        const EdgeInsets.all(16),
                     child: Column(
                       children: [
                         const Text(
                           'Assistant:',
                           style: TextStyle(
-                            fontWeight: FontWeight.bold,
+                            fontWeight:
+                                FontWeight.bold,
                             fontSize: 18,
                           ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           _responseText,
-                          style: const TextStyle(
+                          style:
+                              const TextStyle(
                             fontSize: 20,
                           ),
-                          textAlign: TextAlign.center,
+                          textAlign:
+                              TextAlign.center,
                         ),
                       ],
                     ),
@@ -593,7 +993,8 @@ class _VoiceAssistantScreenState
                       : 'Tap to speak',
                   style: const TextStyle(
                     fontSize: 18,
-                    fontWeight: FontWeight.w500,
+                    fontWeight:
+                        FontWeight.w500,
                   ),
                 ),
 
@@ -609,4 +1010,3 @@ class _VoiceAssistantScreenState
     );
   }
 }
-

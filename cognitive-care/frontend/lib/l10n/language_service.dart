@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'translations.dart';
+
 enum VoiceLanguage {
   english(
     code: 'en',
@@ -76,9 +78,48 @@ enum VoiceLanguage {
 }
 
 class LanguageService {
-  static const String _voiceLanguageKey =
-      'voice_language';
+  static const String _appLanguageKey = 'app_language';
+  static const String _voiceLanguageKey = 'voice_language';
 
+  // ------------------------------------------------------------
+  // APP LANGUAGE
+  // ------------------------------------------------------------
+
+  static Future<AppLanguage> getLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final savedCode = prefs.getString(_appLanguageKey);
+
+    if (savedCode == null || savedCode.isEmpty) {
+      return AppLanguage.english;
+    }
+
+    for (final language in AppLanguage.values) {
+      if (language.code == savedCode) {
+        return language;
+      }
+    }
+
+    return AppLanguage.english;
+  }
+
+  static Future<void> saveLanguage(
+    AppLanguage language,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(
+      _appLanguageKey,
+      language.code,
+    );
+  }
+
+  // ------------------------------------------------------------
+  // VOICE LANGUAGE
+  // ------------------------------------------------------------
+
+  // Kept with these names because VoiceAssistantScreen
+  // already uses them.
   static const VoiceLanguage defaultLanguage =
       VoiceLanguage.english;
 
@@ -95,24 +136,10 @@ class LanguageService {
     VoiceLanguage.kokborok,
   ];
 
-  static Future<void> saveVoiceLanguage(
-    VoiceLanguage language,
-  ) async {
-    final prefs =
-        await SharedPreferences.getInstance();
-
-    await prefs.setString(
-      _voiceLanguageKey,
-      language.code,
-    );
-  }
-
   static Future<VoiceLanguage> getVoiceLanguage() async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    final savedCode =
-        prefs.getString(_voiceLanguageKey);
+    final savedCode = prefs.getString(_voiceLanguageKey);
 
     if (savedCode == null || savedCode.isEmpty) {
       return defaultLanguage;
@@ -127,6 +154,17 @@ class LanguageService {
     return defaultLanguage;
   }
 
+  static Future<void> saveVoiceLanguage(
+    VoiceLanguage language,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setString(
+      _voiceLanguageKey,
+      language.code,
+    );
+  }
+
   static VoiceLanguage fromCode(String code) {
     for (final language in supportedLanguages) {
       if (language.code == code) {
@@ -137,25 +175,24 @@ class LanguageService {
     return defaultLanguage;
   }
 
-  static Future<VoiceLanguage>
-      getCurrentVoiceLanguage() async {
+  static Future<VoiceLanguage> getCurrentVoiceLanguage() async {
     return getVoiceLanguage();
   }
 
   static Future<bool> hasSavedLanguage() async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    final value =
-        prefs.getString(_voiceLanguageKey);
+    final appLanguage = prefs.getString(_appLanguageKey);
+    final voiceLanguage = prefs.getString(_voiceLanguageKey);
 
-    return value != null && value.isNotEmpty;
+    return (appLanguage != null && appLanguage.isNotEmpty) ||
+        (voiceLanguage != null && voiceLanguage.isNotEmpty);
   }
 
   static Future<void> clearLanguage() async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
+    await prefs.remove(_appLanguageKey);
     await prefs.remove(_voiceLanguageKey);
   }
 }

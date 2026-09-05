@@ -29,6 +29,8 @@ from .database import (
     daily_activity_collection,
     game_attempts_collection,
     game_sessions_collection,
+    memories_collection,
+    memory_interactions_collection,
     patients_collection,
     reminders_collection,
     sync_events_collection,
@@ -45,7 +47,9 @@ from .schemas import (
     AttentionGameSubmit,
     CaregiverLinkCreate,
     GameStart,
+    MemoryCreate,
     MemoryGameSubmit,
+    MemoryUpdate,
     PatientCreate,
     PatternGameSubmit,
     ReminderCreate,
@@ -1230,240 +1234,6 @@ def get_next_session(
 
 
 # ============================================================
-# CAREGIVER LINKING
-# ============================================================
-
-@app.post(
-    "/caregiver/links",
-    status_code=status.HTTP_201_CREATED,
-)
-def request_caregiver_link(
-    link: CaregiverLinkCreate,
-    current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Caregiver requests access to a patient."""
-
-    if current_user["role"] != "caregiver":
-        raise HTTPException(
-            status_code=403,
-            detail="Only caregiver accounts can request a link",
-        )
-
-    object_id(
-        link.patient_id,
-        "patient ID",
-    )
-
-    patient = patients_collection.find_one(
-        {
-            "_id": object_id(
-                link.patient_id,
-                "patient ID",
-            )
-        }
-    )
-
-    if not patient:
-        raise HTTPException(
-            status_code=404,
-            detail="Patient not found",
-        )
-
-    existing = caregiver_links_collection.find_one(
-        {
-            "caregiver_id": current_user["user_id"],
-            "patient_id": link.patient_id,
-        }
-    )
-
-    if existing:
-        return {
-            "link_id": str(existing["_id"]),
-            "status": existing["status"],
-        }
-
-    result = caregiver_links_collection.insert_one(
-        {
-            "caregiver_id": current_user["user_id"],
-            "patient_id": link.patient_id,
-            "relationship": link.relationship,
-            "status": "pending",
-            "created_at": now(),
-        }
-    )
-
-    return {
-        "link_id": str(result.inserted_id),
-        "status": "pending",
-    }
-
-
-@app.get(
-    "/caregiver/requests"
-)
-def caregiver_requests(
-    patient: dict = Depends(get_my_patient),
-) -> list[dict]:
-    """Return pending caregiver requests for the elderly user."""
-
-    links = caregiver_links_collection.find(
-        {
-            "patient_id": str(patient["_id"]),
-            "status": "pending",
-        }
-    )
-
-    return [
-        serialise(link)
-        for link in links
-    ]
-
-
-@app.put(
-    "/caregiver/links/{link_id}/accept"
-)
-def accept_caregiver_link(
-    link_id: str,
-    patient: dict = Depends(get_my_patient),
-) -> dict:
-    """Patient accepts a caregiver request."""
-
-    result = caregiver_links_collection.update_one(
-        {
-            "_id": object_id(
-                link_id,
-                "link ID",
-            ),
-            "patient_id": str(patient["_id"]),
-            "status": "pending",
-        },
-        {
-            "$set": {
-                "status": "active",
-                "accepted_at": now(),
-            }
-        },
-    )
-
-    if not result.modified_count:
-        raise HTTPException(
-            status_code=404,
-            detail="Pending caregiver request not found",
-        )
-
-    return {
-        "status": "active"
-    }
-
-
-@app.get(
-    "/caregiver/patients"
-)
-def caregiver_patients(
-    current_user: dict = Depends(get_current_user),
-) -> list[dict]:
-    """Return all patients linked to the caregiver."""
-
-    if current_user["role"] != "caregiver":
-        raise HTTPException(
-            status_code=403,
-            detail="Caregiver role required",
-        )
-
-    links = caregiver_links_collection.find(
-        {
-            "caregiver_id": current_user["user_id"],
-            "status": "active",
-        }
-    )
-
-    result = []
-
-    for link in links:
-        patient = patients_collection.find_one(
-            {
-                "_id": object_id(
-                    link["patient_id"],
-                    "patient ID",
-                )
-            }
-        )
-
-        if patient:
-            result.append(
-                {
-                    "patient": serialise(patient),
-                    "relationship": link[
-                        "relationship"
-                    ],
-                    "analytics": patient_analytics(
-                        link["patient_id"]
-                    ),
-                }
-            )
-
-    return result
-
-
-@app.get(
-    "/caregiver/patients/{patient_id}"
-)
-@app.get(
-    "/caregiver/patients/{patient_id}/analytics"
-)
-def caregiver_patient(
-    patient_id: str,
-    current_user: dict = Depends(get_current_user),
-) -> dict:
-    """Return one linked patient's dashboard data."""
-
-    if current_user["role"] != "caregiver":
-        raise HTTPException(
-            status_code=403,
-            detail="Caregiver role required",
-        )
-
-    link = caregiver_links_collection.find_one(
-        {
-            "caregiver_id": current_user["user_id"],
-            "patient_id": patient_id,
-            "status": "active",
-        }
-    )
-
-    if not link:
-        raise HTTPException(
-            status_code=403,
-            detail="Patient is not linked to this caregiver",
-        )
-
-    patient = patients_collection.find_one(
-        {
-            "_id": object_id(
-                patient_id,
-                "patient ID",
-            )
-        }
-    )
-
-    if not patient:
-        raise HTTPException(
-            status_code=404,
-            detail="Patient not found",
-        )
-
-    return {
-        "patient": serialise(patient),
-        "analytics": patient_analytics(
-            patient_id
-        ),
-        "profile": save_profile(
-            patient_id
-        ),
-    }
-
-
-# ============================================================
 # REMINDERS
 # ============================================================
 
@@ -2236,3 +2006,814 @@ def voice_command(
             ),
             "language": language,
         }
+
+# ============================================================
+# CAREGIVER LINKING
+# ============================================================
+
+@app.post(
+    "/caregiver/links",
+    status_code=status.HTTP_201_CREATED,
+)
+def request_caregiver_link(
+    link: CaregiverLinkCreate,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Caregiver requests access to a patient."""
+
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Only caregiver accounts can request a link",
+        )
+
+    patient_id = link.patient_id.strip()
+
+    object_id(
+        patient_id,
+        "patient ID",
+    )
+
+    patient = patients_collection.find_one(
+        {
+            "_id": object_id(
+                patient_id,
+                "patient ID",
+            )
+        }
+    )
+
+    if not patient:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found",
+        )
+
+    # Prevent duplicate links.
+    existing = caregiver_links_collection.find_one(
+        {
+            "caregiver_id": current_user["user_id"],
+            "patient_id": patient_id,
+        }
+    )
+
+    if existing:
+        return {
+            "link_id": str(existing["_id"]),
+            "patient_id": patient_id,
+            "status": existing["status"],
+            "relationship": existing.get(
+                "relationship",
+                "Caregiver",
+            ),
+        }
+
+    result = caregiver_links_collection.insert_one(
+        {
+            "caregiver_id": current_user["user_id"],
+            "patient_id": patient_id,
+            "relationship": link.relationship,
+            "status": "pending",
+            "created_at": now(),
+        }
+    )
+
+    return {
+        "link_id": str(result.inserted_id),
+        "status": "pending",
+        "patient_id": patient_id,
+    }
+
+
+@app.get(
+    "/caregiver/requests"
+)
+def caregiver_requests(
+    patient: dict = Depends(get_my_patient),
+) -> list[dict]:
+    """Return pending caregiver requests for the elderly user."""
+
+    links = caregiver_links_collection.find(
+        {
+            "patient_id": str(patient["_id"]),
+            "status": "pending",
+        }
+    )
+
+    result = []
+
+    for link in links:
+        caregiver = users_collection.find_one(
+            {
+                "_id": object_id(
+                    link["caregiver_id"],
+                    "caregiver ID",
+                )
+            }
+        )
+
+        result.append(
+            {
+                "id": str(link["_id"]),
+                "caregiver_id": link["caregiver_id"],
+                "caregiver_name": (
+                    caregiver.get("name")
+                    if caregiver
+                    else "Caregiver"
+                ),
+                "patient_id": link["patient_id"],
+                "relationship": link.get(
+                    "relationship",
+                    "Caregiver",
+                ),
+                "status": link["status"],
+                "created_at": link.get("created_at"),
+            }
+        )
+
+    return result
+
+
+@app.put(
+    "/caregiver/links/{link_id}/accept"
+)
+def accept_caregiver_link(
+    link_id: str,
+    patient: dict = Depends(get_my_patient),
+) -> dict:
+    """Patient accepts a caregiver request."""
+
+    result = caregiver_links_collection.update_one(
+        {
+            "_id": object_id(
+                link_id,
+                "link ID",
+            ),
+            "patient_id": str(patient["_id"]),
+            "status": "pending",
+        },
+        {
+            "$set": {
+                "status": "active",
+                "accepted_at": now(),
+            }
+        },
+    )
+
+    if not result.modified_count:
+        raise HTTPException(
+            status_code=404,
+            detail="Pending caregiver request not found",
+        )
+
+    return {
+        "link_id": link_id,
+        "patient_id": str(patient["_id"]),
+        "status": "active",
+    }
+
+
+@app.get(
+    "/caregiver/patients"
+)
+def caregiver_patients(
+    current_user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """Return all patients linked to the caregiver."""
+
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Caregiver role required",
+        )
+
+    links = caregiver_links_collection.find(
+        {
+            "caregiver_id": current_user["user_id"],
+            "status": "active",
+        }
+    )
+
+    result = []
+
+    for link in links:
+        patient = patients_collection.find_one(
+            {
+                "_id": object_id(
+                    link["patient_id"],
+                    "patient ID",
+                )
+            }
+        )
+
+        if patient:
+            result.append(
+                {
+                    "patient": serialise(patient),
+                    "patient_id": link["patient_id"],
+                    "relationship": link.get(
+                        "relationship",
+                        "Caregiver",
+                    ),
+                    "analytics": patient_analytics(
+                        link["patient_id"]
+                    ),
+                }
+            )
+
+    return result
+
+
+@app.get(
+    "/caregiver/patients/{patient_id}"
+)
+@app.get(
+    "/caregiver/patients/{patient_id}/analytics"
+)
+def caregiver_patient(
+    patient_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Return one linked patient's dashboard data."""
+
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Caregiver role required",
+        )
+
+    link = caregiver_links_collection.find_one(
+        {
+            "caregiver_id": current_user["user_id"],
+            "patient_id": patient_id,
+            "status": "active",
+        }
+    )
+
+    if not link:
+        raise HTTPException(
+            status_code=403,
+            detail="Patient is not linked to this caregiver",
+        )
+
+    patient = patients_collection.find_one(
+        {
+            "_id": object_id(
+                patient_id,
+                "patient ID",
+            )
+        }
+    )
+
+    if not patient:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found",
+        )
+
+    return {
+        "patient": serialise(patient),
+        "analytics": patient_analytics(
+            patient_id
+        ),
+        "profile": save_profile(
+            patient_id
+        ),
+    }
+
+
+# ============================================================
+# MEMORY MOMENTS
+# ============================================================
+
+def _caregiver_owns_memory(
+    memory_id: str,
+    current_user: dict,
+) -> dict:
+    """Verify the caregiver owns this memory and return it."""
+
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Only caregivers can manage memories",
+        )
+
+    memory = memories_collection.find_one(
+        {
+            "_id": object_id(
+                memory_id,
+                "memory ID",
+            ),
+            "created_by": current_user["user_id"],
+        }
+    )
+
+    if not memory:
+        raise HTTPException(
+            status_code=404,
+            detail="Memory not found",
+        )
+
+    return memory
+
+
+@app.post(
+    "/memories",
+    status_code=status.HTTP_201_CREATED,
+)
+def create_memory(
+    body: MemoryCreate,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Caregiver creates a memory capsule for a patient."""
+
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Only caregivers can create memories",
+        )
+
+    patient_id = body.patient_id.strip()
+
+    patient_object_id = object_id(
+        patient_id,
+        "patient ID",
+    )
+
+    patient = patients_collection.find_one(
+        {
+            "_id": patient_object_id,
+        }
+    )
+
+    if not patient:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found",
+        )
+
+    link = caregiver_links_collection.find_one(
+        {
+            "caregiver_id": current_user["user_id"],
+            "patient_id": patient_id,
+            "status": "active",
+        }
+    )
+
+    if not link:
+        raise HTTPException(
+            status_code=403,
+            detail="Patient is not linked to this caregiver",
+        )
+
+    result = memories_collection.insert_one(
+        {
+            "patient_id": patient_id,
+            "created_by": current_user["user_id"],
+            "title": body.title,
+            "description": body.description,
+            "photos": [],
+            "people": body.people,
+            "place": body.place,
+            "year": body.year,
+            "voice": None,
+            "tags": body.tags,
+            "priority": body.priority,
+            "active": True,
+            "shown_count": 0,
+            "last_shown_at": None,
+            "created_at": now(),
+        }
+    )
+
+    return {
+        "memory_id": str(result.inserted_id),
+        "patient_id": patient_id,
+        "title": body.title,
+        "status": "created",
+    }
+
+
+@app.get(
+    "/memories",
+)
+def list_memories(
+    patient_id: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """List all memories for a patient.
+
+    Caregivers can see all memories they created.
+    Patients can see their own active memories.
+    """
+
+    patient_id = patient_id.strip()
+
+    object_id(
+        patient_id,
+        "patient ID",
+    )
+
+    if current_user["role"] == "caregiver":
+        links = caregiver_links_collection.find_one(
+            {
+                "caregiver_id": current_user["user_id"],
+                "patient_id": patient_id,
+                "status": "active",
+            }
+        )
+
+        if not links:
+            raise HTTPException(
+                status_code=403,
+                detail="Patient is not linked to this caregiver",
+            )
+
+        query = {
+            "patient_id": patient_id,
+            "created_by": current_user["user_id"],
+        }
+
+    elif current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {
+                "_id": object_id(
+                    patient_id,
+                    "patient ID",
+                ),
+                "user_id": current_user["user_id"],
+            }
+        )
+
+        if not patient:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+
+        query = {
+            "patient_id": patient_id,
+            "active": True,
+        }
+
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
+
+    memories = memories_collection.find(
+        query
+    ).sort(
+        "created_at",
+        -1,
+    )
+
+    return [
+        serialise(m)
+        for m in memories
+    ]
+
+
+@app.get(
+    "/memories/today",
+)
+def get_today_memory(
+    patient_id: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Return today's memory moment for a patient.
+
+    Uses a simple resurfacing algorithm:
+    1. Active memories only.
+    2. Avoid recently shown memories.
+    3. Prefer higher priority.
+    4. Random among candidates.
+    """
+
+    patient_id = patient_id.strip()
+
+    object_id(
+        patient_id,
+        "patient ID",
+    )
+
+    patient = patients_collection.find_one(
+        {
+            "_id": object_id(
+                patient_id,
+                "patient ID",
+            ),
+        }
+    )
+
+    if not patient:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found",
+        )
+
+    if current_user["role"] == "caregiver":
+        link = caregiver_links_collection.find_one(
+            {
+                "caregiver_id": current_user["user_id"],
+                "patient_id": patient_id,
+                "status": "active",
+            }
+        )
+
+        if not link:
+            raise HTTPException(
+                status_code=403,
+                detail="Patient is not linked to this caregiver",
+            )
+
+    elif current_user["role"] == "elderly":
+        if patient.get("user_id") != current_user["user_id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
+
+    all_memories = list(
+        memories_collection.find(
+            {
+                "patient_id": patient_id,
+                "active": True,
+            }
+        )
+    )
+
+    if not all_memories:
+        return {
+            "memory": None,
+            "message": "No memories yet. Ask your caregiver to add some.",
+        }
+
+    yesterday = now() - timedelta(days=1)
+
+    candidates = [
+        m for m in all_memories
+        if m.get("last_shown_at") is None
+        or m["last_shown_at"] < yesterday
+    ]
+
+    if not candidates:
+        candidates = all_memories
+
+    candidates.sort(
+        key=lambda m: (
+            -(m.get("priority", 0)),
+            m.get("shown_count", 0),
+        )
+    )
+
+    top_priority = candidates[0].get("priority", 0)
+
+    best = [
+        m for m in candidates
+        if m.get("priority", 0) == top_priority
+    ]
+
+    chosen = random.choice(best)
+
+    memories_collection.update_one(
+        {
+            "_id": chosen["_id"],
+        },
+        {
+            "$set": {
+                "last_shown_at": now(),
+            },
+            "$inc": {
+                "shown_count": 1,
+            },
+        },
+    )
+
+    return {
+        "memory": serialise(chosen),
+    }
+
+
+@app.get(
+    "/memories/{memory_id}",
+)
+def get_memory(
+    memory_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Get a single memory capsule."""
+
+    memory = memories_collection.find_one(
+        {
+            "_id": object_id(
+                memory_id,
+                "memory ID",
+            ),
+        }
+    )
+
+    if not memory:
+        raise HTTPException(
+            status_code=404,
+            detail="Memory not found",
+        )
+
+    patient_id = memory["patient_id"]
+
+    if current_user["role"] == "caregiver":
+        link = caregiver_links_collection.find_one(
+            {
+                "caregiver_id": current_user["user_id"],
+                "patient_id": patient_id,
+                "status": "active",
+            }
+        )
+
+        if not link and memory.get("created_by") != current_user["user_id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+
+    elif current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {
+                "_id": object_id(
+                    patient_id,
+                    "patient ID",
+                ),
+            }
+        )
+
+        if not patient or patient.get("user_id") != current_user["user_id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+
+        if not memory.get("active", False):
+            raise HTTPException(
+                status_code=404,
+                detail="Memory not found",
+            )
+
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
+
+    return serialise(memory)
+
+
+@app.put(
+    "/memories/{memory_id}",
+)
+def update_memory(
+    memory_id: str,
+    body: MemoryUpdate,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Caregiver updates a memory capsule."""
+
+    _caregiver_owns_memory(
+        memory_id,
+        current_user,
+    )
+
+    update_fields = {
+        k: v
+        for k, v in body.model_dump(
+            exclude_unset=True,
+        ).items()
+        if v is not None
+    }
+
+    if not update_fields:
+        raise HTTPException(
+            status_code=400,
+            detail="No fields to update",
+        )
+
+    memories_collection.update_one(
+        {
+            "_id": object_id(
+                memory_id,
+                "memory ID",
+            ),
+        },
+        {
+            "$set": update_fields,
+        },
+    )
+
+    return {
+        "memory_id": memory_id,
+        "status": "updated",
+    }
+
+
+@app.delete(
+    "/memories/{memory_id}",
+)
+def delete_memory(
+    memory_id: str,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Caregiver soft-deletes a memory capsule."""
+
+    _caregiver_owns_memory(
+        memory_id,
+        current_user,
+    )
+
+    memories_collection.update_one(
+        {
+            "_id": object_id(
+                memory_id,
+                "memory ID",
+            ),
+        },
+        {
+            "$set": {
+                "active": False,
+            },
+        },
+    )
+
+    return {
+        "memory_id": memory_id,
+        "status": "removed",
+    }
+
+
+@app.post(
+    "/memories/{memory_id}/interact",
+)
+def memory_interaction(
+    memory_id: str,
+    action: str = Query(
+        ...,
+        pattern="^(viewed|listened|tell_me_more|next)$",
+    ),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Track patient interaction with a memory.
+
+    This helps the resurfacing algorithm understand
+    which memories the patient engages with.
+    """
+
+    memory = memories_collection.find_one(
+        {
+            "_id": object_id(
+                memory_id,
+                "memory ID",
+            ),
+        }
+    )
+
+    if not memory:
+        raise HTTPException(
+            status_code=404,
+            detail="Memory not found",
+        )
+
+    patient_id = memory["patient_id"]
+
+    if current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {
+                "_id": object_id(
+                    patient_id,
+                    "patient ID",
+                ),
+            }
+        )
+
+        if not patient or patient.get("user_id") != current_user["user_id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+
+    memory_interactions_collection.insert_one(
+        {
+            "memory_id": memory_id,
+            "patient_id": patient_id,
+            "action": action,
+            "timestamp": now(),
+        }
+    )
+
+    return {
+        "status": "recorded",
+    }

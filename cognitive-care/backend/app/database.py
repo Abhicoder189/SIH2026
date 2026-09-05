@@ -76,6 +76,8 @@ cognitive_profiles_collection = database["cognitive_profiles"]
 daily_activity_collection = database["daily_activity"]
 sync_events_collection = database["sync_events"]
 revoked_tokens_collection = database["revoked_tokens"]
+memories_collection = database["memories"]
+memory_interactions_collection = database["memory_interactions"]
 
 
 # ==================================================

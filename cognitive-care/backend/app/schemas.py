@@ -89,3 +89,29 @@ class SyncReminder(BaseModel):
     reminder_id: str
     completed: bool
     occurred_at: datetime
+
+
+# ============================================================
+# MEMORY MOMENTS
+# ============================================================
+
+class MemoryCreate(BaseModel):
+    patient_id: str
+    title: str = Field(..., min_length=2, max_length=150)
+    description: str = Field(default="", max_length=500)
+    people: list[str] = Field(default_factory=list, max_length=20)
+    place: str = Field(default="", max_length=150)
+    year: int | None = Field(default=None, ge=1900, le=2100)
+    tags: list[str] = Field(default_factory=list, max_length=10)
+    priority: int = Field(default=0, ge=0, le=10)
+
+
+class MemoryUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=150)
+    description: str | None = Field(default=None, max_length=500)
+    people: list[str] | None = None
+    place: str | None = Field(default=None, max_length=150)
+    year: int | None = Field(default=None, ge=1900, le=2100)
+    tags: list[str] | None = None
+    priority: int | None = Field(default=None, ge=0, le=10)
+    active: bool | None = None
