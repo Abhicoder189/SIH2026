@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../services/api_service.dart';
 import 'journey_map_screen.dart';
@@ -187,6 +189,33 @@ class _CaregiverJourneyScreenState
                       ),
                     ),
                     const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await Navigator.push<LatLng>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => _MapPickerScreen(
+                                initialLat: double.tryParse(latController.text) ?? 30.08,
+                                initialLng: double.tryParse(lngController.text) ?? 78.68,
+                                token: widget.token,
+                              ),
+                            ),
+                          );
+                          if (picked != null) {
+                            latController.text = picked.latitude.toStringAsFixed(6);
+                            lngController.text = picked.longitude.toStringAsFixed(6);
+                          }
+                        },
+                        icon: const Icon(Icons.map, size: 22),
+                        label: const Text(
+                          'PICK DESTINATION ON MAP',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
                     Row(
                       children: [
                         Expanded(
@@ -213,11 +242,6 @@ class _CaregiverJourneyScreenState
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Tap the map button to use current location, or enter coordinates.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                     ),
                   ],
                 ),
@@ -729,6 +753,317 @@ class _CaregiverJourneyScreenState
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _MapPickerScreen extends StatefulWidget {
+  final double initialLat;
+  final double initialLng;
+  final String token;
+
+  const _MapPickerScreen({
+    required this.initialLat,
+    required this.initialLng,
+    required this.token,
+  });
+
+  @override
+  State<_MapPickerScreen> createState() => _MapPickerScreenState();
+}
+
+class _MapPickerScreenState extends State<_MapPickerScreen> {
+  late LatLng _selectedPoint;
+  late MapController _mapController;
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _searching = false;
+  bool _showResults = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPoint = LatLng(widget.initialLat, widget.initialLng);
+    _mapController = MapController();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search(String query) async {
+    if (query.trim().length < 2) {
+      setState(() {
+        _searchResults = [];
+        _showResults = false;
+      });
+      return;
+    }
+
+    setState(() { _searching = true; });
+
+    try {
+      final features = await ApiService.geocodeSearch(
+        widget.token,
+        text: query,
+        limit: 5,
+      );
+
+      final results = features.map<Map<String, dynamic>>((f) {
+        final props = f['properties'] as Map<String, dynamic>? ?? {};
+        final coords = f['geometry']?['coordinates'] as List? ?? [];
+        return {
+          'lat': coords.isNotEmpty ? coords[1] : null,
+          'lon': coords.isNotEmpty ? coords[0] : null,
+          'display_name': props['formatted'] ?? props['name'] ?? '',
+          'name': props['name'] ?? '',
+          'city': props['city'] ?? '',
+          'state': props['state'] ?? '',
+          'country': props['country'] ?? '',
+        };
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _searchResults = results;
+          _showResults = true;
+          _searching = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() { _searching = false; });
+      }
+    }
+  }
+
+  void _selectSearchResult(Map<String, dynamic> result) {
+    final lat = double.tryParse(result['lat']?.toString() ?? '');
+    final lng = double.tryParse(result['lon']?.toString() ?? '');
+
+    if (lat == null || lng == null) return;
+
+    final point = LatLng(lat, lng);
+    final displayName = result['display_name']?.toString() ?? '';
+
+    setState(() {
+      _selectedPoint = point;
+      _showResults = false;
+      _searchResults = [];
+      _searchController.text = displayName;
+    });
+
+    _mapController.move(point, 16);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pick destination'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context, _selectedPoint);
+            },
+            child: const Text(
+              'SELECT',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _selectedPoint,
+              initialZoom: 14,
+              onTap: (tapPosition, point) {
+                setState(() {
+                  _selectedPoint = point;
+                  _showResults = false;
+                  _searchController.clear();
+                });
+              },
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.sih.cognitivecare',
+              ),
+              MarkerLayer(
+                markers: [
+                  Marker(
+                    point: _selectedPoint,
+                    width: 44,
+                    height: 44,
+                    child: const Icon(
+                      Icons.location_on,
+                      color: Colors.red,
+                      size: 40,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          Positioned(
+            top: 10,
+            left: 10,
+            right: 10,
+            child: Column(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                  child: TextField(
+                    controller: _searchController,
+                    style: const TextStyle(fontSize: 16),
+                    decoration: InputDecoration(
+                      hintText: 'Search for a place...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {
+                                  _searchResults = [];
+                                  _showResults = false;
+                                });
+                              },
+                              icon: const Icon(Icons.clear),
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                    ),
+                    onChanged: _search,
+                    onSubmitted: _search,
+                  ),
+                ),
+                if (_searching)
+                  Container(
+                    margin: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 10),
+                        Text('Searching...'),
+                      ],
+                    ),
+                  ),
+                if (_showResults && _searchResults.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _searchResults.length,
+                      itemBuilder: (context, index) {
+                        final result = _searchResults[index];
+                        final name = result['name']?.toString() ?? '';
+                        final city = result['city']?.toString() ?? '';
+                        final country = result['country']?.toString() ?? '';
+                        final displayName = result['display_name']?.toString() ?? '';
+
+                        final subtitle = [city, country]
+                            .where((s) => s.isNotEmpty)
+                            .join(', ');
+
+                        return ListTile(
+                          leading: const Icon(Icons.place, color: Colors.red),
+                          title: Text(
+                            name.isNotEmpty ? name : displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                          ),
+                          subtitle: subtitle.isNotEmpty
+                              ? Text(
+                                  subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 13),
+                                )
+                              : null,
+                          dense: true,
+                          onTap: () => _selectSearchResult(result),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      bottomSheet: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        color: Colors.white,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Lat: ${_selectedPoint.latitude.toStringAsFixed(6)}  |  Lng: ${_selectedPoint.longitude.toStringAsFixed(6)}',
+              style: const TextStyle(fontSize: 15),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context, _selectedPoint);
+                },
+                icon: const Icon(Icons.check),
+                label: const Text(
+                  'SELECT THIS LOCATION',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

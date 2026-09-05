@@ -916,6 +916,25 @@ class ApiService {
   }
 
   // ============================================================
+  // GEOCODING
+  // ============================================================
+
+  static Future<List<dynamic>> geocodeSearch(
+    String token, {
+    required String text,
+    int limit = 5,
+  }) async {
+    final response = await _request(
+      'GET',
+      '/geocode/autocomplete?text=${Uri.encodeComponent(text)}&limit=$limit',
+      token: token,
+    );
+
+    final features = response['features'] as List? ?? [];
+    return features;
+  }
+
+  // ============================================================
   // OFFLINE SYNC
   // ============================================================
 

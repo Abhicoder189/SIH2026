@@ -3523,3 +3523,53 @@ def delete_family_member(
     )
 
     return {"status": "deleted"}
+
+
+# ============================================================
+# GEOCODING PROXY (Geoapify)
+# ============================================================
+
+GEOAPIFY_KEY = os.getenv("YOUR_GEOAPIFY_API_KEY", "")
+
+
+@app.get(
+    "/geocode/autocomplete",
+    tags=["Geocoding"],
+)
+def geocode_autocomplete(
+    text: str = Query(..., min_length=2, max_length=200),
+    limit: int = Query(default=5, ge=1, le=10),
+    current_user: dict = Depends(get_current_user),
+):
+    """Proxy Geoapify geocoding so the API key stays on the server."""
+    import json as _json
+    import urllib.request
+    import urllib.parse
+    import urllib.error
+
+    if not GEOAPIFY_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Geoapify API key not configured",
+        )
+
+    params = urllib.parse.urlencode({
+        "text": text,
+        "limit": limit,
+        "apiKey": GEOAPIFY_KEY,
+    })
+
+    url = f"https://api.geoapify.com/v1/geocode/autocomplete?{params}"
+
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "CognitiveCareApp/1.0",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+            return data
+    except urllib.error.URLError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Geocoding service error: {e}",
+        )
