@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import 'caregiver_memory_manager_screen.dart';
 import 'caregiver_journey_screen.dart';
+import 'caregiver_family_manager_screen.dart';
 import 'login_screen.dart';
 
 class CognitiveDashboardScreen extends StatefulWidget {
@@ -1006,6 +1007,39 @@ class _CognitiveDashboardScreenState
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue.shade50,
                 foregroundColor: Colors.blue.shade700,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CaregiverFamilyManagerScreen(
+                      token: widget.token,
+                      patientId: patientId,
+                      patientName: patientName,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.people, size: 22),
+              label: const Text(
+                'FAMILY',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal.shade50,
+                foregroundColor: Colors.teal.shade700,
                 padding: const EdgeInsets.symmetric(
                   vertical: 14,
                 ),

@@ -133,3 +133,32 @@ class JourneyCreate(BaseModel):
 class JourneyLocationUpdate(BaseModel):
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
+
+
+# ============================================================
+# FAMILY RECOGNITION
+# ============================================================
+
+class FamilyMemberCreate(BaseModel):
+    patient_id: str
+    name: str = Field(..., min_length=1, max_length=100)
+    relationship: str = Field(..., min_length=1, max_length=80)
+    description: str = Field(default="", max_length=500)
+    voice_description: str = Field(default="", max_length=500)
+    photo_url: str = Field(default="", max_length=500)
+    nicknames: list[str] = Field(default_factory=list, max_length=10)
+    how_you_know_them: str = Field(default="", max_length=500)
+    fun_fact: str = Field(default="", max_length=300)
+    priority: int = Field(default=0, ge=0, le=10)
+
+
+class FamilyMemberUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    relationship: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, max_length=500)
+    voice_description: str | None = Field(default=None, max_length=500)
+    photo_url: str | None = Field(default=None, max_length=500)
+    nicknames: list[str] | None = None
+    how_you_know_them: str | None = Field(default=None, max_length=500)
+    fun_fact: str | None = Field(default=None, max_length=300)
+    priority: int | None = Field(default=None, ge=0, le=10)

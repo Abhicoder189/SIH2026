@@ -99,7 +99,7 @@ class _JourneyAssistScreenState
     _sendLocationUpdate();
 
     _locationTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 15),
       (_) => _sendLocationUpdate(),
     );
   }

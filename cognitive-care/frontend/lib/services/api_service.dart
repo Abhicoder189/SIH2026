@@ -805,6 +805,117 @@ class ApiService {
   }
 
   // ============================================================
+  // FAMILY RECOGNITION
+  // ============================================================
+
+  static Future<Map<String, dynamic>> listFamilyMembers(
+    String token, {
+    required String patientId,
+  }) async {
+    final response = await _request(
+      'GET',
+      '/family-members?patient_id=$patientId',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> createFamilyMember({
+    required String token,
+    required String patientId,
+    required String name,
+    required String relationship,
+    String description = '',
+    String voiceDescription = '',
+    String photoUrl = '',
+    List<String> nicknames = const [],
+    String howYouKnowThem = '',
+    String funFact = '',
+    int priority = 0,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/family-members',
+      token: token,
+      body: {
+        'patient_id': patientId,
+        'name': name,
+        'relationship': relationship,
+        'description': description,
+        'voice_description': voiceDescription,
+        'photo_url': photoUrl,
+        'nicknames': nicknames,
+        'how_you_know_them': howYouKnowThem,
+        'fun_fact': funFact,
+        'priority': priority,
+      },
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> getFamilyMember(
+    String token,
+    String memberId,
+  ) async {
+    final response = await _request(
+      'GET',
+      '/family-members/$memberId',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> updateFamilyMember({
+    required String token,
+    required String memberId,
+    String? name,
+    String? relationship,
+    String? description,
+    String? voiceDescription,
+    String? photoUrl,
+    List<String>? nicknames,
+    String? howYouKnowThem,
+    String? funFact,
+    int? priority,
+  }) async {
+    final body = <String, dynamic>{};
+    if (name != null) body['name'] = name;
+    if (relationship != null) body['relationship'] = relationship;
+    if (description != null) body['description'] = description;
+    if (voiceDescription != null) body['voice_description'] = voiceDescription;
+    if (photoUrl != null) body['photo_url'] = photoUrl;
+    if (nicknames != null) body['nicknames'] = nicknames;
+    if (howYouKnowThem != null) body['how_you_know_them'] = howYouKnowThem;
+    if (funFact != null) body['fun_fact'] = funFact;
+    if (priority != null) body['priority'] = priority;
+
+    final response = await _request(
+      'PUT',
+      '/family-members/$memberId',
+      token: token,
+      body: body,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> deleteFamilyMember(
+    String token,
+    String memberId,
+  ) async {
+    final response = await _request(
+      'DELETE',
+      '/family-members/$memberId',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  // ============================================================
   // OFFLINE SYNC
   // ============================================================
 

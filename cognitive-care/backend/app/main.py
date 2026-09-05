@@ -27,6 +27,7 @@ from .database import (
     caregiver_links_collection,
     cognitive_profiles_collection,
     daily_activity_collection,
+    family_members_collection,
     game_attempts_collection,
     game_sessions_collection,
     journeys_collection,
@@ -47,6 +48,8 @@ from .ml_personalization import ml_recommend_difficulty
 from .schemas import (
     AttentionGameSubmit,
     CaregiverLinkCreate,
+    FamilyMemberCreate,
+    FamilyMemberUpdate,
     GameStart,
     JourneyCreate,
     JourneyLocationUpdate,
@@ -3315,3 +3318,208 @@ def cancel_journey(
         "journey_id": journey_id,
         "status": "cancelled",
     }
+
+
+# ============================================================
+# FAMILY RECOGNITION
+# ============================================================
+
+@app.get(
+    "/family-members",
+    tags=["Family Recognition"],
+)
+def list_family_members(
+    patient_id: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """List all family members for a patient."""
+    if current_user["role"] == "caregiver":
+        if not _caregiver_can_access_patient(
+            patient_id, current_user["user_id"]
+        ):
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {"user_id": current_user["user_id"]}
+        )
+        if not patient or str(patient["_id"]) != patient_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    else:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    members = list(
+        family_members_collection.find(
+            {"patient_id": patient_id, "active": True}
+        ).sort("priority", -1)
+    )
+
+    return {
+        "family_members": [serialise(m) for m in members],
+        "count": len(members),
+    }
+
+
+@app.post(
+    "/family-members",
+    tags=["Family Recognition"],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_family_member(
+    body: FamilyMemberCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a new family member profile (caregiver only)."""
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Only caregivers can add family members",
+        )
+
+    if not _caregiver_can_access_patient(
+        body.patient_id, current_user["user_id"]
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Patient is not linked to this caregiver",
+        )
+
+    result = family_members_collection.insert_one(
+        {
+            "patient_id": body.patient_id,
+            "caregiver_id": current_user["user_id"],
+            "name": body.name,
+            "relationship": body.relationship,
+            "description": body.description,
+            "voice_description": body.voice_description,
+            "photo_url": body.photo_url,
+            "nicknames": body.nicknames,
+            "how_you_know_them": body.how_you_know_them,
+            "fun_fact": body.fun_fact,
+            "priority": body.priority,
+            "active": True,
+            "created_at": now(),
+            "updated_at": now(),
+        }
+    )
+
+    return {
+        "family_member_id": str(result.inserted_id),
+        "name": body.name,
+        "relationship": body.relationship,
+    }
+
+
+@app.get(
+    "/family-members/{member_id}",
+    tags=["Family Recognition"],
+)
+def get_family_member(
+    member_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get a single family member by ID."""
+    member = family_members_collection.find_one(
+        {"_id": ObjectId(member_id)}
+    )
+
+    if not member:
+        raise HTTPException(
+            status_code=404, detail="Family member not found"
+        )
+
+    if current_user["role"] == "caregiver":
+        if member.get("caregiver_id") != current_user["user_id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+    elif current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {"user_id": current_user["user_id"]}
+        )
+        if not patient or str(patient["_id"]) != member.get("patient_id"):
+            raise HTTPException(status_code=403, detail="Access denied")
+    else:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return {"family_member": serialise(member)}
+
+
+@app.put(
+    "/family-members/{member_id}",
+    tags=["Family Recognition"],
+)
+def update_family_member(
+    member_id: str,
+    body: FamilyMemberUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Update a family member (caregiver only)."""
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Only caregivers can update family members",
+        )
+
+    member = family_members_collection.find_one(
+        {"_id": ObjectId(member_id)}
+    )
+
+    if not member:
+        raise HTTPException(
+            status_code=404, detail="Family member not found"
+        )
+
+    if member.get("caregiver_id") != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    update_fields = {}
+    for field in [
+        "name", "relationship", "description",
+        "voice_description", "photo_url", "nicknames",
+        "how_you_know_them", "fun_fact", "priority",
+    ]:
+        value = getattr(body, field, None)
+        if value is not None:
+            update_fields[field] = value
+
+    if update_fields:
+        update_fields["updated_at"] = now()
+        family_members_collection.update_one(
+            {"_id": member["_id"]},
+            {"$set": update_fields},
+        )
+
+    return {"status": "updated"}
+
+
+@app.delete(
+    "/family-members/{member_id}",
+    tags=["Family Recognition"],
+)
+def delete_family_member(
+    member_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Soft-delete a family member (caregiver only)."""
+    if current_user["role"] != "caregiver":
+        raise HTTPException(
+            status_code=403,
+            detail="Only caregivers can delete family members",
+        )
+
+    member = family_members_collection.find_one(
+        {"_id": ObjectId(member_id)}
+    )
+
+    if not member:
+        raise HTTPException(
+            status_code=404, detail="Family member not found"
+        )
+
+    if member.get("caregiver_id") != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    family_members_collection.update_one(
+        {"_id": member["_id"]},
+        {"$set": {"active": False, "updated_at": now()}},
+    )
+
+    return {"status": "deleted"}

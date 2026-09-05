@@ -9,6 +9,7 @@ import 'login_screen.dart';
 import 'memory_game_screen.dart';
 import 'memory_moment_screen.dart';
 import 'journey_assist_screen.dart';
+import 'family_recognition_screen.dart';
 import 'notification_feed_screen.dart';
 import 'pattern_game_screen.dart';
 import 'preferences_screen.dart';
@@ -954,6 +955,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
           _journeyCard(),
 
+          const SizedBox(height: 18),
+
+          _familyCard(),
+
           const SizedBox(height: 24),
 
           _title('Cognitive Games'),
@@ -1442,6 +1447,69 @@ class _HomeScreenState extends State<HomeScreen> {
               Icon(
                 Icons.chevron_right,
                 color: Colors.blue.shade300,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // FAMILY CARD
+  // ============================================================
+
+  Widget _familyCard() {
+    return Card(
+      elevation: 0,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          _open(
+            FamilyRecognitionScreen(
+              token: widget.token,
+              patientId: _patientId(),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 27,
+                backgroundColor: Colors.teal.shade50,
+                child: Icon(
+                  Icons.people,
+                  size: 28,
+                  color: Colors.teal.shade400,
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'My Family',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 5),
+                    Text(
+                      'See photos and learn about your family',
+                      style: TextStyle(
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: Colors.teal.shade300,
               ),
             ],
           ),

@@ -79,6 +79,7 @@ revoked_tokens_collection = database["revoked_tokens"]
 memories_collection = database["memories"]
 memory_interactions_collection = database["memory_interactions"]
 journeys_collection = database["journeys"]
+family_members_collection = database["family_members"]
 
 
 # ==================================================

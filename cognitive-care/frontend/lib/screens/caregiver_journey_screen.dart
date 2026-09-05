@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
+import 'journey_map_screen.dart';
 
 class CaregiverJourneyScreen extends StatefulWidget {
   final String token;
@@ -25,11 +28,57 @@ class _CaregiverJourneyScreenState
   bool _loading = true;
   String? _error;
   bool _creating = false;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _load();
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _refreshSilent(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshSilent() async {
+    try {
+      final result = await ApiService.getActiveJourney(
+        widget.token,
+        patientId: widget.patientId,
+      );
+
+      if (!mounted) return;
+
+      final journey = result['journey'];
+      final newJourney = journey is Map
+          ? Map<String, dynamic>.from(journey)
+          : null;
+
+      final oldStatus = _journey?['status']?.toString();
+      final newStatus = newJourney?['status']?.toString();
+
+      setState(() {
+        _journey = newJourney;
+      });
+
+      if (oldStatus != newStatus && newStatus == 'arrived') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Patient has arrived at the destination!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (_) {
+      // Silent fail for auto-refresh
+    }
   }
 
   Future<void> _load() async {
@@ -382,6 +431,9 @@ class _CaregiverJourneyScreenState
     final dist = _journey!['distance_to_destination_m'];
     final startedAt = _journey!['started_at']?.toString();
     final expectedMinutes = _journey!['expected_duration_minutes'];
+    final lastLat = _journey!['last_latitude'];
+    final lastLng = _journey!['last_longitude'];
+    final lastLocAt = _journey!['last_location_at']?.toString();
 
     String distText = 'Unknown';
     if (dist != null && dist is num) {
@@ -406,6 +458,24 @@ class _CaregiverJourneyScreenState
     String expectedText = '';
     if (expectedMinutes != null) {
       expectedText = 'Expected: ${expectedMinutes}min';
+    }
+
+    bool hasLocation = lastLat != null && lastLng != null &&
+        lastLat is num && lastLng is num;
+
+    String locationAge = '';
+    if (lastLocAt != null) {
+      try {
+        final locTime = DateTime.parse(lastLocAt);
+        final ago = DateTime.now().difference(locTime);
+        if (ago.inSeconds < 60) {
+          locationAge = '${ago.inSeconds}s ago';
+        } else if (ago.inMinutes < 60) {
+          locationAge = '${ago.inMinutes}m ago';
+        } else {
+          locationAge = '${ago.inHours}h ago';
+        }
+      } catch (_) {}
     }
 
     Color statusColor;
@@ -501,6 +571,146 @@ class _CaregiverJourneyScreenState
                     Text(expectedText, style: TextStyle(fontSize: 16, color: Colors.grey.shade600)),
                   if (timeText.isEmpty && expectedText.isEmpty)
                     Text('Time data unavailable', style: TextStyle(fontSize: 16, color: Colors.grey.shade500)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 0,
+            color: Colors.blue.shade50,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.place, size: 24, color: Colors.blue.shade700),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Destination',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(dest, style: const TextStyle(fontSize: 16)),
+                  if (address.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(address, style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                  ],
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => JourneyMapScreen(
+                              token: widget.token,
+                              journeyId: _journey!['id'].toString(),
+                              journeyName: dest,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.map, size: 22),
+                      label: const Text(
+                        'VIEW ON MAP',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 0,
+            color: hasLocation ? Colors.green.shade50 : Colors.grey.shade100,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.my_location,
+                        size: 24,
+                        color: hasLocation ? Colors.green : Colors.grey,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          hasLocation ? 'Patient Location' : 'Waiting for patient location...',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                            color: hasLocation ? Colors.green.shade800 : Colors.grey,
+                          ),
+                        ),
+                      ),
+                      if (locationAge.isNotEmpty)
+                        Text(
+                          locationAge,
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                        ),
+                    ],
+                  ),
+                  if (hasLocation) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Lat: ${lastLat.toDouble().toStringAsFixed(6)}  |  Lng: ${lastLng.toDouble().toStringAsFixed(6)}',
+                      style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => JourneyMapScreen(
+                                token: widget.token,
+                                journeyId: _journey!['id'].toString(),
+                                journeyName: dest,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.directions_walk, size: 22),
+                        label: const Text(
+                          'VIEW PATIENT ON MAP',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Waiting for patient location data...',
+                      style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                    ),
+                  ],
                 ],
               ),
             ),
