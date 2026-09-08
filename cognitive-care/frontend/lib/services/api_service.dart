@@ -1174,31 +1174,17 @@ class ApiService {
     String? category,
     int limit = 20,
   }) async {
-    final queryParams = <String, String>{
-      'limit': limit.toString(),
-    };
-    if (status != null) queryParams['status'] = status;
-    if (category != null) queryParams['category'] = category;
+    String path = '/smart-events?limit=$limit';
+    if (status != null) path += '&status=$status';
+    if (category != null) path += '&category=$category';
 
-    final uri = Uri.https(
-      'sih2026-gh31.onrender.com',
-      '/smart-events',
-      queryParams,
+    final response = await _request(
+      'GET',
+      path,
+      token: token,
     );
 
-    final response = await http.get(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    ).timeout(_timeout);
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to load smart events');
-    }
-
-    return jsonDecode(response.body);
+    return Map<String, dynamic>.from(response);
   }
 
   static Future<Map<String, dynamic>> getActiveSmartEvents({
@@ -1329,30 +1315,15 @@ class ApiService {
     bool unreadOnly = false,
     int limit = 30,
   }) async {
-    final queryParams = <String, String>{
-      'limit': limit.toString(),
-      'unread_only': unreadOnly.toString(),
-    };
+    String path = '/notifications?limit=$limit&unread_only=$unreadOnly';
 
-    final uri = Uri.https(
-      'sih2026-gh31.onrender.com',
-      '/notifications',
-      queryParams,
+    final response = await _request(
+      'GET',
+      path,
+      token: token,
     );
 
-    final response = await http.get(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    ).timeout(_timeout);
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to load notifications');
-    }
-
-    return jsonDecode(response.body);
+    return Map<String, dynamic>.from(response);
   }
 
   static Future<Map<String, dynamic>> getUnreadNotificationCount({
