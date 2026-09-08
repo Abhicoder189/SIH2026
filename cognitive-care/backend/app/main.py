@@ -1898,36 +1898,39 @@ def notification_feed(
             "id": str(reminder.get("_id")),
             "title": reminder.get("title", "Reminder"),
             "message": reminder.get("message", ""),
-            "scheduled_time": scheduled,
+            "scheduled_time": scheduled.isoformat() if hasattr(scheduled, 'isoformat') else str(scheduled) if scheduled else None,
             "due": due,
             "type": reminder.get("type", "activity"),
             "source": "reminder",
         })
 
-    smart_events = list(
-        smart_events_collection.find({
-            "patient_id": patient_id,
-            "status": {"$in": ["new", "confirmed"]},
-        })
-        .sort("created_at", -1)
-        .limit(10)
-    )
-    for event in smart_events:
-        feed.append({
-            "id": str(event.get("_id")),
-            "title": event.get("title", "Smart Event"),
-            "message": event.get("purpose", ""),
-            "scheduled_time": event.get("due_date"),
-            "due": False,
-            "type": event.get("category", "OTHER"),
-            "source": "smart_event",
-            "confidence": event.get("confidence", 0),
-            "location_name": event.get("location_name"),
-        })
+    try:
+        smart_events = list(
+            smart_events_collection.find({
+                "patient_id": patient_id,
+                "status": {"$in": ["new", "confirmed"]},
+            })
+            .sort("created_at", -1)
+            .limit(10)
+        )
+        for event in smart_events:
+            created = event.get("created_at")
+            feed.append({
+                "id": str(event.get("_id")),
+                "title": event.get("title", "Smart Event"),
+                "message": event.get("purpose", ""),
+                "scheduled_time": event.get("due_date"),
+                "due": False,
+                "type": event.get("category", "OTHER"),
+                "source": "smart_event",
+                "confidence": event.get("confidence", 0),
+                "location_name": event.get("location_name"),
+                "created_at": created.isoformat() if hasattr(created, 'isoformat') else str(created) if created else None,
+            })
+    except Exception:
+        pass
 
-    feed.sort(key=lambda x: str(x.get("created_at", "") or x.get("scheduled_time", "")), reverse=True)
-
-    return {"items": feed[:30], "server_time": current}
+    return {"items": feed[:30], "server_time": current.isoformat() if hasattr(current, 'isoformat') else str(current)}
 
 
 # ============================================================

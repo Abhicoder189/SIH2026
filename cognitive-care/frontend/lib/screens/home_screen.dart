@@ -96,22 +96,27 @@ class _HomeScreenState extends State<HomeScreen> {
         ApiService.getAnalyticsSummary(
           widget.token,
           patientId,
-        ),
+        ).catchError((_) => <String, dynamic>{}),
         ApiService.getNextSession(
           widget.token,
           patientId,
-        ),
+        ).catchError((_) => <String, dynamic>{}),
         ApiService.getNotificationFeed(
           widget.token,
           patientId,
-        ),
+        ).catchError((_) => <String, dynamic>{}),
         ApiService.caregiverRequests(
           widget.token,
-        ),
-        ApiService.getUnreadNotificationCount(
-          token: widget.token,
-        ),
+        ).catchError((_) => <dynamic>[]),
       ]);
+
+      int unreadCount = 0;
+      try {
+        final unreadResult = await ApiService.getUnreadNotificationCount(
+          token: widget.token,
+        );
+        unreadCount = unreadResult['unread_count'] as int? ?? 0;
+      } catch (_) {}
 
       if (!mounted) {
         return;
@@ -122,17 +127,17 @@ class _HomeScreenState extends State<HomeScreen> {
     patient,
   );
 
-  _summary = Map<String, dynamic>.from(
-    results[0] as Map,
-  );
+  _summary = results[0] is Map
+      ? Map<String, dynamic>.from(results[0] as Map)
+      : {};
 
-  _nextSession = Map<String, dynamic>.from(
-    results[1] as Map,
-  );
+  _nextSession = results[1] is Map
+      ? Map<String, dynamic>.from(results[1] as Map)
+      : {};
 
-  _notifications = Map<String, dynamic>.from(
-    results[2] as Map,
-  );
+  _notifications = results[2] is Map
+      ? Map<String, dynamic>.from(results[2] as Map)
+      : {};
 
   _caregiverRequests = results[3] is List
       ? List<dynamic>.from(
@@ -140,8 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
         )
       : [];
 
-  final unreadResult = results[4] as Map<String, dynamic>;
-  _unreadCount = unreadResult['unread_count'] as int? ?? 0;
+  _unreadCount = unreadCount;
 
   _loading = false;
 });
