@@ -43,6 +43,7 @@ DIFFICULTY_OBJECT_COUNT = {
 
 def generate_memory_challenge(difficulty: int):
 
+    difficulty = max(1, min(5, difficulty))
     object_count = DIFFICULTY_OBJECT_COUNT[
         difficulty
     ]

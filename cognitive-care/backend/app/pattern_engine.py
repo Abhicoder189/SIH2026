@@ -39,6 +39,7 @@ def generate_pattern_challenge(
     difficulty: int
 ):
 
+    difficulty = max(1, min(5, difficulty))
     pattern = random.choice(
         PATTERNS[difficulty]
     )

@@ -8,3 +8,6 @@ python-multipart
 pydantic
 email-validator
 google-genai
+scikit-learn
+joblib
+numpy

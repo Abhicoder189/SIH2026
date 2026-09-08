@@ -31,6 +31,7 @@ from .database import (
     game_attempts_collection,
     game_sessions_collection,
     journeys_collection,
+    journey_interactions_collection,
     memories_collection,
     memory_interactions_collection,
     patients_collection,
@@ -52,6 +53,7 @@ from .schemas import (
     FamilyMemberUpdate,
     GameStart,
     JourneyCreate,
+    JourneyInteraction,
     JourneyLocationUpdate,
     MemoryCreate,
     MemoryGameSubmit,
@@ -69,6 +71,10 @@ from .schemas import (
 from .session_manager import create_game_session
 
 from .gemini_voice import interpret_voice_command
+from .task_context_engine import build_task_context
+from .instruction_parser import parse_instruction
+from .context_response_generator import generate_response, get_all_responses
+from .context_ml import extract_features as ml_extract_features, predict_state as ml_predict_state
 # ============================================================
 # APP CONFIGURATION
 # ============================================================
@@ -467,7 +473,7 @@ def startup_event() -> None:
 def home() -> dict:
     return {
         "message": "Cognitive Care API is running",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "medical_notice": (
             "Game performance is not a diagnosis."
         ),
@@ -1112,13 +1118,13 @@ def get_game_attempts(
 @app.get("/patients/{patient_id}/difficulty-recommendation")
 def get_difficulty_recommendation(
     patient_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(verify_patient_access),
 ) -> dict:
 
     analytics = patient_analytics(patient_id)
 
     attempts = list(
-        db.game_attempts.find(
+        game_attempts_collection.find(
             {"patient_id": patient_id}
         ).sort("created_at", 1)
     )
@@ -2973,6 +2979,15 @@ def create_journey(
             detail="Patient is not linked to this caregiver",
         )
 
+    parsed_task = {}
+    if body.instruction.strip():
+        parsed_task = parse_instruction(body.instruction)
+
+    task_purpose = parsed_task.get("purpose", body.purpose)
+    if not task_purpose:
+        task_purpose = body.purpose
+    task_steps = parsed_task.get("steps", [])
+
     result = journeys_collection.insert_one(
         {
             "patient_id": patient_id,
@@ -2981,8 +2996,15 @@ def create_journey(
             "destination_address": body.destination_address,
             "destination_latitude": body.destination_latitude,
             "destination_longitude": body.destination_longitude,
-            "purpose": body.purpose,
+            "purpose": task_purpose,
             "expected_duration_minutes": body.expected_duration_minutes,
+            "instruction": body.instruction,
+            "task_type": parsed_task.get("task_type", ""),
+            "task_object": parsed_task.get("object", ""),
+            "task_action": parsed_task.get("action", ""),
+            "steps": task_steps,
+            "current_step": 0,
+            "internal_location_hint": parsed_task.get("internal_location_hint", ""),
             "status": "active",
             "started_at": now(),
             "arrival_at": None,
@@ -3000,7 +3022,10 @@ def create_journey(
         "journey_id": str(result.inserted_id),
         "patient_id": patient_id,
         "destination_name": body.destination_name,
-        "purpose": body.purpose,
+        "purpose": task_purpose,
+        "instruction": body.instruction,
+        "task_type": parsed_task.get("task_type", ""),
+        "steps": task_steps,
         "status": "active",
     }
 
@@ -3320,6 +3345,168 @@ def cancel_journey(
     }
 
 
+@app.get(
+    "/journeys/{journey_id}/context",
+    tags=["Journey Assist"],
+)
+def get_journey_context(
+    journey_id: str,
+    latitude: float | None = Query(default=None),
+    longitude: float | None = Query(default=None),
+    gps_accuracy: float | None = Query(default=None),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Get the full task context for a journey.
+
+    Used by the Flutter client to build the context-aware
+    assistance UI.
+    """
+
+    journey = journeys_collection.find_one(
+        {"_id": object_id(journey_id, "journey ID")}
+    )
+
+    if not journey:
+        raise HTTPException(
+            status_code=404,
+            detail="Journey not found",
+        )
+
+    pid = journey["patient_id"]
+
+    if current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {"user_id": current_user["user_id"]}
+        )
+        if not patient or str(patient["_id"]) != pid:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+    elif current_user["role"] == "caregiver":
+        if not _caregiver_can_access_patient(
+            pid, current_user["user_id"]
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied",
+        )
+
+    recent_interactions = list(
+        journey_interactions_collection.find(
+            {"journey_id": journey_id}
+        )
+        .sort("timestamp", -1)
+        .limit(20)
+    )
+
+    context = build_task_context(
+        journey=journey,
+        current_latitude=latitude,
+        current_longitude=longitude,
+        gps_accuracy=gps_accuracy,
+        recent_interactions=recent_interactions,
+    )
+
+    ml_features = ml_extract_features(context, recent_interactions)
+    ml_result = ml_predict_state(ml_features, recent_interactions)
+    context["ml"] = ml_result
+
+    responses = get_all_responses(context)
+    context["responses"] = responses
+
+    return context
+
+
+@app.post(
+    "/journeys/{journey_id}/interaction",
+    tags=["Journey Assist"],
+    status_code=status.HTTP_201_CREATED,
+)
+def log_journey_interaction(
+    journey_id: str,
+    body: JourneyInteraction,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Log a patient interaction during a journey.
+
+    Types: WHY_AM_I_HERE, WHERE_AM_I, IM_CONFUSED,
+    CALL_CAREGIVER, TASK_COMPLETED, WHAT_NEXT
+    """
+
+    journey = journeys_collection.find_one(
+        {"_id": object_id(journey_id, "journey ID")}
+    )
+
+    if not journey:
+        raise HTTPException(
+            status_code=404,
+            detail="Journey not found",
+        )
+
+    pid = journey["patient_id"]
+
+    if current_user["role"] == "elderly":
+        patient = patients_collection.find_one(
+            {"user_id": current_user["user_id"]}
+        )
+        if not patient or str(patient["_id"]) != pid:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied",
+            )
+    else:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the patient can log interactions",
+        )
+
+    context = build_task_context(
+        journey=journey,
+        current_latitude=body.latitude,
+        current_longitude=body.longitude,
+    )
+
+    response_text = generate_response(
+        context, body.interaction_type
+    )
+
+    interaction_doc = {
+        "journey_id": journey_id,
+        "patient_id": pid,
+        "interaction_type": body.interaction_type,
+        "latitude": body.latitude,
+        "longitude": body.longitude,
+        "journey_state": context["journey"]["state"],
+        "distance_to_destination_m": context["location"]["distance_to_destination_m"],
+        "response": response_text,
+        "timestamp": now(),
+    }
+
+    journey_interactions_collection.insert_one(interaction_doc)
+
+    if body.interaction_type == "TASK_COMPLETED":
+        current_step = journey.get("current_step", 0)
+        steps = journey.get("steps", [])
+        new_step = min(current_step + 1, len(steps))
+        journeys_collection.update_one(
+            {"_id": journey["_id"]},
+            {"$set": {"current_step": new_step}},
+        )
+        context["task"]["current_step"] = new_step
+
+    return {
+        "response": response_text,
+        "journey_state": context["journey"]["state"],
+        "current_step": context["task"]["current_step"],
+    }
+
+
 # ============================================================
 # FAMILY RECOGNITION
 # ============================================================
@@ -3418,8 +3605,9 @@ def get_family_member(
     current_user: dict = Depends(get_current_user),
 ):
     """Get a single family member by ID."""
+    oid = object_id(member_id, "Family member ID")
     member = family_members_collection.find_one(
-        {"_id": ObjectId(member_id)}
+        {"_id": oid}
     )
 
     if not member:
@@ -3458,8 +3646,9 @@ def update_family_member(
             detail="Only caregivers can update family members",
         )
 
+    oid = object_id(member_id, "Family member ID")
     member = family_members_collection.find_one(
-        {"_id": ObjectId(member_id)}
+        {"_id": oid}
     )
 
     if not member:
@@ -3505,8 +3694,9 @@ def delete_family_member(
             detail="Only caregivers can delete family members",
         )
 
+    oid = object_id(member_id, "Family member ID")
     member = family_members_collection.find_one(
-        {"_id": ObjectId(member_id)}
+        {"_id": oid}
     )
 
     if not member:

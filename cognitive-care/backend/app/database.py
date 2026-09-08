@@ -2,7 +2,7 @@ import os
 
 from dotenv import load_dotenv
 
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING, DESCENDING
 
 from pymongo.server_api import ServerApi
 
@@ -80,6 +80,84 @@ memories_collection = database["memories"]
 memory_interactions_collection = database["memory_interactions"]
 journeys_collection = database["journeys"]
 family_members_collection = database["family_members"]
+journey_interactions_collection = database["journey_interactions"]
+
+
+# ==================================================
+# INDEXES
+# ==================================================
+
+def ensure_indexes():
+    """Create indexes for common query patterns."""
+    try:
+        users_collection.create_index(
+            [("email", ASCENDING)], unique=True, background=True
+        )
+
+        caregiver_links_collection.create_index(
+            [("caregiver_id", ASCENDING), ("patient_id", ASCENDING), ("status", ASCENDING)],
+            background=True,
+        )
+
+        game_attempts_collection.create_index(
+            [("patient_id", ASCENDING), ("created_at", DESCENDING)],
+            background=True,
+        )
+
+        game_sessions_collection.create_index(
+            [("patient_id", ASCENDING), ("created_at", DESCENDING)],
+            background=True,
+        )
+
+        reminders_collection.create_index(
+            [("patient_id", ASCENDING), ("scheduled_time", ASCENDING)],
+            background=True,
+        )
+
+        sync_events_collection.create_index(
+            [("patient_id", ASCENDING), ("client_event_id", ASCENDING)],
+            unique=True, background=True,
+        )
+
+        revoked_tokens_collection.create_index(
+            [("expires_at", ASCENDING)],
+            expireAfterSeconds=0,
+            background=True,
+        )
+
+        memories_collection.create_index(
+            [("patient_id", ASCENDING), ("created_at", DESCENDING)],
+            background=True,
+        )
+
+        journeys_collection.create_index(
+            [("patient_id", ASCENDING), ("status", ASCENDING)],
+            background=True,
+        )
+
+        family_members_collection.create_index(
+            [("patient_id", ASCENDING)],
+            background=True,
+        )
+
+        memory_interactions_collection.create_index(
+            [("memory_id", ASCENDING)],
+            background=True,
+        )
+
+        daily_activity_collection.create_index(
+            [("patient_id", ASCENDING), ("date", ASCENDING)],
+            background=True,
+        )
+
+        journey_interactions_collection.create_index(
+            [("journey_id", ASCENDING), ("timestamp", DESCENDING)],
+            background=True,
+        )
+
+        print("Database indexes ensured.")
+    except Exception as e:
+        print(f"Index creation warning: {e}")
 
 
 # ==================================================
@@ -97,6 +175,8 @@ def test_database_connection():
         print(
             "MongoDB connection successful!"
         )
+
+        ensure_indexes()
 
     except Exception as error:
 

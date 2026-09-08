@@ -101,9 +101,9 @@ class _CaregiverFamilyManagerScreenState
                       onTap: () async {
                         final picked = await picker.pickImage(
                           source: ImageSource.gallery,
-                          maxWidth: 400,
-                          maxHeight: 400,
-                          imageQuality: 70,
+                          maxWidth: 200,
+                          maxHeight: 200,
+                          imageQuality: 40,
                         );
                         if (picked != null) {
                           final bytes = await File(picked.path).readAsBytes();

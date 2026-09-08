@@ -121,6 +121,7 @@ class _CaregiverJourneyScreenState
     final nameController = TextEditingController();
     final addressController = TextEditingController();
     final purposeController = TextEditingController();
+    final instructionController = TextEditingController();
     final durationController = TextEditingController(text: '45');
     final latController = TextEditingController(text: '30.08');
     final lngController = TextEditingController(text: '78.68');
@@ -173,6 +174,18 @@ class _CaregiverJourneyScreenState
                         labelText: 'Purpose',
                         hintText: 'e.g. Buy medicines',
                         prefixIcon: Icon(Icons.task_alt),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: instructionController,
+                      style: const TextStyle(fontSize: 18),
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Full instruction (optional)',
+                        hintText: 'e.g. Go to Apollo Pharmacy and buy your medicines',
+                        prefixIcon: Icon(Icons.description),
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -282,6 +295,7 @@ class _CaregiverJourneyScreenState
     final name = nameController.text.trim();
     final address = addressController.text.trim();
     final purpose = purposeController.text.trim();
+    final instruction = instructionController.text.trim();
     final duration = int.tryParse(durationController.text.trim()) ?? 45;
     final lat = double.tryParse(latController.text.trim()) ?? 30.08;
     final lng = double.tryParse(lngController.text.trim()) ?? 78.68;
@@ -300,6 +314,7 @@ class _CaregiverJourneyScreenState
         destinationLongitude: lng,
         purpose: purpose,
         expectedDurationMinutes: duration,
+        instruction: instruction,
       );
 
       if (!mounted) return;

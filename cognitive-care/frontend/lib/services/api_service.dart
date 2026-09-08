@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 class ApiService {
   static const String baseUrl = 'https://sih2026-gh31.onrender.com';
+  static const Duration _timeout = Duration(seconds: 30);
 
   // ============================================================
   // GENERIC REQUEST
@@ -33,7 +34,7 @@ class ApiService {
           response = await http.get(
             uri,
             headers: headers,
-          );
+          ).timeout(_timeout);
           break;
 
         case 'POST':
@@ -41,7 +42,7 @@ class ApiService {
             uri,
             headers: headers,
             body: jsonEncode(body ?? {}),
-          );
+          ).timeout(_timeout);
           break;
 
         case 'PUT':
@@ -49,14 +50,14 @@ class ApiService {
             uri,
             headers: headers,
             body: jsonEncode(body ?? {}),
-          );
+          ).timeout(_timeout);
           break;
 
         case 'DELETE':
           response = await http.delete(
             uri,
             headers: headers,
-          );
+          ).timeout(_timeout);
           break;
 
         default:
@@ -65,8 +66,9 @@ class ApiService {
           );
       }
     } catch (error) {
+      if (error is ArgumentError) rethrow;
       throw Exception(
-        'Unable to connect to SmiritiSarthi server.',
+        'Unable to connect to server. Please check your internet connection.',
       );
     }
 
@@ -713,6 +715,7 @@ class ApiService {
     required double destinationLongitude,
     required String purpose,
     int expectedDurationMinutes = 45,
+    String instruction = '',
   }) async {
     final response = await _request(
       'POST',
@@ -726,6 +729,7 @@ class ApiService {
         'destination_longitude': destinationLongitude,
         'purpose': purpose,
         'expected_duration_minutes': expectedDurationMinutes,
+        'instruction': instruction,
       },
     );
 
@@ -799,6 +803,55 @@ class ApiService {
       'POST',
       '/journeys/$journeyId/cancel',
       token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  // ============================================================
+  // JOURNEY CONTEXT
+  // ============================================================
+
+  static Future<Map<String, dynamic>> getJourneyContext(
+    String token,
+    String journeyId, {
+    double? latitude,
+    double? longitude,
+    double? gpsAccuracy,
+  }) async {
+    final params = <String>[];
+    if (latitude != null) params.add('latitude=$latitude');
+    if (longitude != null) params.add('longitude=$longitude');
+    if (gpsAccuracy != null) params.add('gps_accuracy=$gpsAccuracy');
+    final suffix = params.isNotEmpty ? '?${params.join('&')}' : '';
+
+    final response = await _request(
+      'GET',
+      '/journeys/$journeyId/context$suffix',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> logJourneyInteraction({
+    required String token,
+    required String journeyId,
+    required String interactionType,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final body = <String, dynamic>{
+      'interaction_type': interactionType,
+    };
+    if (latitude != null) body['latitude'] = latitude;
+    if (longitude != null) body['longitude'] = longitude;
+
+    final response = await _request(
+      'POST',
+      '/journeys/$journeyId/interaction',
+      token: token,
+      body: body,
     );
 
     return Map<String, dynamic>.from(response);
