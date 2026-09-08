@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
+import '../services/sms_reader_service.dart';
 
 class SmartHelpScreen extends StatefulWidget {
   const SmartHelpScreen({super.key});
@@ -17,6 +18,10 @@ class _SmartHelpScreenState extends State<SmartHelpScreen> {
   bool _loading = true;
   String? _error;
   bool _analyzing = false;
+  bool _scanning = false;
+  int _scanProgress = 0;
+  int _scanTotal = 0;
+  int _relevantFound = 0;
   final _messageController = TextEditingController();
   String? _token;
   String? _patientId;
@@ -76,6 +81,116 @@ class _SmartHelpScreenState extends State<SmartHelpScreen> {
           _error = 'Could not load messages.';
           _loading = false;
         });
+      }
+    }
+  }
+
+  Future<void> _scanAllSms() async {
+    if (_token == null) return;
+
+    final smsReader = SmsReaderService();
+
+    bool hasPerm = await smsReader.hasPermission();
+    if (!hasPerm) {
+      hasPerm = await smsReader.requestPermission();
+    }
+
+    if (!hasPerm) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'SMS permission is needed to scan messages. Please allow it in Settings.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _scanning = true;
+      _scanProgress = 0;
+      _scanTotal = 0;
+      _relevantFound = 0;
+    });
+
+    try {
+      final allSms = await smsReader.readAllSms(limit: 500);
+
+      if (allSms.isEmpty) {
+        if (mounted) {
+          setState(() => _scanning = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No SMS messages found on this phone.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      setState(() => _scanTotal = allSms.length);
+
+      int relevant = 0;
+      for (int i = 0; i < allSms.length; i++) {
+        final sms = allSms[i];
+
+        if (sms.body.length < 10) {
+          setState(() => _scanProgress = i + 1);
+          continue;
+        }
+
+        try {
+          final result = await ApiService.analyzeSmartMessage(
+            token: _token!,
+            message: sms.body,
+            source: 'sms',
+            sender: sms.address,
+          );
+
+          final status = result['status'] as String? ?? '';
+          if (status == 'created') {
+            relevant++;
+          }
+        } catch (_) {}
+
+        if (mounted) {
+          setState(() => _scanProgress = i + 1);
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _relevantFound = relevant;
+          _scanning = false;
+        });
+
+        await _loadEvents();
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              relevant > 0
+                  ? 'Found $relevant important messages from ${allSms.length} SMS!'
+                  : 'Scanned ${allSms.length} messages. No important messages found.',
+            ),
+            backgroundColor: relevant > 0 ? Colors.green : Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _scanning = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error scanning SMS: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -298,45 +413,104 @@ class _SmartHelpScreenState extends State<SmartHelpScreen> {
       body: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             color: Colors.teal.shade50,
-            child: Row(
+            child: Column(
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    style: const TextStyle(fontSize: 18),
-                    decoration: InputDecoration(
-                      hintText: 'Type or paste a message...',
-                      prefixIcon: const Icon(Icons.message, size: 26),
-                      border: const OutlineInputBorder(),
-                      suffixIcon: _analyzing
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                            )
-                          : IconButton(
-                              icon: const Icon(Icons.send, size: 26),
-                              onPressed: _analyzing ? null : _analyzeMessage,
-                            ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _messageController,
+                        style: const TextStyle(fontSize: 18),
+                        decoration: InputDecoration(
+                          hintText: 'Type or paste a message...',
+                          prefixIcon: const Icon(Icons.message, size: 26),
+                          border: const OutlineInputBorder(),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          suffixIcon: _analyzing
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                )
+                              : IconButton(
+                                  icon: const Icon(Icons.send, size: 26),
+                                  onPressed: _analyzing ? null : _analyzeMessage,
+                                ),
+                        ),
+                        onSubmitted: (_) => _analyzeMessage(),
+                      ),
                     ),
-                    onSubmitted: (_) => _analyzeMessage(),
-                  ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.content_paste, size: 28),
+                      onPressed: _showPasteDialog,
+                      tooltip: 'Paste message',
+                      color: Colors.teal,
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.content_paste, size: 28),
-                  onPressed: _showPasteDialog,
-                  tooltip: 'Paste message',
-                  color: Colors.teal,
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _scanning ? null : _scanAllSms,
+                    icon: _scanning
+                        ? SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              value: _scanTotal > 0
+                                  ? _scanProgress / _scanTotal
+                                  : null,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.sms, size: 24),
+                    label: Text(
+                      _scanning
+                          ? 'Scanning $_scanProgress/$_scanTotal...'
+                          : 'SCAN ALL SMS',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
+          if (_relevantFound > 0)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: Colors.green.shade50,
+              child: Text(
+                'Found $_relevantFound important messages!',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green.shade800,
+                ),
+              ),
+            ),
           Expanded(
             child: _buildEventList(),
           ),
@@ -347,9 +521,7 @@ class _SmartHelpScreenState extends State<SmartHelpScreen> {
 
   Widget _buildEventList() {
     if (_loading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_error != null) {
@@ -372,36 +544,36 @@ class _SmartHelpScreenState extends State<SmartHelpScreen> {
 
     if (_events.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.smart_toy_outlined, size: 80, color: Colors.teal.shade200),
-            const SizedBox(height: 20),
-            const Text(
-              'No smart messages yet',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Paste an important message below and SmritiSarthi will understand it for you.',
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.smart_toy_outlined, size: 80, color: Colors.teal.shade200),
+              const SizedBox(height: 20),
+              const Text(
+                'No smart messages yet',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Scan your SMS to automatically find important messages about bills, appointments, medicines, and more.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 17, height: 1.4, color: Colors.grey),
               ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _showPasteDialog,
-              icon: const Icon(Icons.content_paste, size: 24),
-              label: const Text('PASTE MESSAGE', style: TextStyle(fontSize: 18)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: _scanning ? null : _scanAllSms,
+                icon: const Icon(Icons.sms, size: 24),
+                label: const Text('SCAN ALL SMS', style: TextStyle(fontSize: 18)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
