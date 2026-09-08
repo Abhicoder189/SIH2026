@@ -3825,7 +3825,7 @@ def analyze_smart_message(
 
     Privacy: Only processes messages the user explicitly submits.
     """
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -3953,7 +3953,7 @@ def list_smart_events(
 ):
     """List smart events for the current patient."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4006,7 +4006,7 @@ def get_active_smart_events(
 ):
     """Get active (new/confirmed) smart events for the patient."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4053,7 +4053,7 @@ def get_smart_event(
 ):
     """Get a specific smart event by ID."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4105,7 +4105,7 @@ def update_smart_event(
 ):
     """Update a smart event (status, confirmation, details)."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4156,7 +4156,7 @@ def confirm_smart_event(
 ):
     """Confirm a smart event is correct and actionable."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4194,7 +4194,7 @@ def create_smart_event_reminder(
 ):
     """Create a reminder from a smart event."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4255,7 +4255,7 @@ def create_smart_event_journey(
 ):
     """Create a journey from a smart event."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4321,7 +4321,7 @@ def dismiss_smart_event(
 ):
     """Dismiss/delete a smart event."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4353,7 +4353,7 @@ def caregiver_get_patient_smart_events(
         raise HTTPException(status_code=403, detail="Caregiver access required")
 
     link = caregiver_links_collection.find_one({
-        "caregiver_id": str(current_user["_id"]),
+        "caregiver_id": current_user["user_id"],
         "patient_id": patient_id,
         "status": "active",
     })
@@ -4514,7 +4514,7 @@ def list_notifications(
 ):
     """List notifications for the current patient."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4566,7 +4566,7 @@ def get_unread_notification_count(
 ):
     """Get count of unread notifications."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4591,7 +4591,7 @@ def update_notification(
 ):
     """Update a notification (mark read/dismissed)."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4630,7 +4630,7 @@ def mark_all_notifications_read(
 ):
     """Mark all notifications as read for the current patient."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
@@ -4657,7 +4657,7 @@ def dismiss_notification(
 ):
     """Dismiss/delete a notification."""
 
-    patient = get_my_patient(current_user["_id"])
+    patient = patients_collection.find_one({"user_id": current_user["user_id"]})
     if not patient:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
