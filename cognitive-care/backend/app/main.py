@@ -3907,6 +3907,8 @@ def analyze_smart_message(
     result = smart_events_collection.insert_one(event_doc)
     event_id = str(result.inserted_id)
 
+    patient_friendly = _patient_friendly_event(extracted)
+
     _create_notification(
         patient_id=patient_id,
         title=event_doc["title"],
@@ -3915,8 +3917,6 @@ def analyze_smart_message(
         reference_id=event_id,
         reference_type="smart_event",
     )
-
-    patient_friendly = _patient_friendly_event(extracted)
 
     return {
         "status": "created",
