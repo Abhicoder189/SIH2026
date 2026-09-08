@@ -15,6 +15,7 @@ import 'pattern_game_screen.dart';
 import 'preferences_screen.dart';
 import 'reminders_screen.dart';
 import 'voice_assistant_screen.dart';
+import 'smart_help_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final String userId;
@@ -40,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic> _summary = {};
   Map<String, dynamic> _nextSession = {};
   Map<String, dynamic> _notifications = {};
+  int _unreadCount = 0;
 
   // Pending caregiver requests for the elderly user.
   List<dynamic> _caregiverRequests = [];
@@ -106,6 +108,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ApiService.caregiverRequests(
           widget.token,
         ),
+        ApiService.getUnreadNotificationCount(
+          token: widget.token,
+        ),
       ]);
 
       if (!mounted) {
@@ -134,6 +139,9 @@ class _HomeScreenState extends State<HomeScreen> {
           results[3] as List,
         )
       : [];
+
+  final unreadResult = results[4] as Map<String, dynamic>;
+  _unreadCount = unreadResult['unread_count'] as int? ?? 0;
 
   _loading = false;
 });
@@ -895,6 +903,46 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         actions: [
+          Stack(
+            children: [
+              IconButton(
+                onPressed: _loading
+                    ? null
+                    : () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => NotificationFeedScreen(
+                              token: widget.token,
+                              patientId: _patientId(),
+                            ),
+                          ),
+                        ).then((_) => _load());
+                      },
+                icon: const Icon(Icons.notifications_outlined, size: 28),
+                tooltip: 'Notifications',
+              ),
+              if (_unreadCount > 0)
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      _unreadCount > 99 ? '99+' : '$_unreadCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             onPressed:
                 _loading ? null : _load,
@@ -1023,6 +1071,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
           Row(
             children: [
+              Expanded(
+                child: _small(
+                  'Smart Help',
+                  Icons.smart_toy,
+                  () {
+                    _open(
+                      const SmartHelpScreen(),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
               Expanded(
                 child: _small(
                   'Reminders',

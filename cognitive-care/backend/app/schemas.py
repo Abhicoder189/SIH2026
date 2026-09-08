@@ -470,3 +470,83 @@ class FamilyMemberUpdate(BaseModel):
         ge=0,
         le=10,
     )
+
+
+# ============================================================
+# SMART MESSAGE UNDERSTANDING
+# ============================================================
+
+SmartEventCategory = Literal[
+    "BILL", "MEDICINE", "HEALTHCARE_APPOINTMENT", "TRAVEL",
+    "DELIVERY", "SHOPPING", "FAMILY_INSTRUCTION", "REMINDER",
+    "EVENT", "OTHER",
+]
+
+SmartEventAction = Literal[
+    "PAY", "PICKUP", "ATTEND", "VISIT", "BUY", "CALL", "REMEMBER", "OTHER",
+]
+
+SmartEventStatus = Literal[
+    "new", "confirmed", "reminder_set", "journey_created",
+    "completed", "expired", "dismissed",
+]
+
+NotificationType = Literal[
+    "smart_event", "reminder", "journey", "caregiver", "system",
+]
+
+
+class SmartMessageAnalyze(BaseModel):
+    message: str = Field(
+        ...,
+        min_length=5,
+        max_length=2000,
+    )
+    source: str = Field(
+        default="manual",
+        max_length=100,
+    )
+    sender: str | None = Field(
+        default=None,
+        max_length=200,
+    )
+
+
+class SmartEventUpdate(BaseModel):
+    status: SmartEventStatus | None = None
+    confirmed: bool | None = None
+    title: str | None = Field(default=None, max_length=150)
+    purpose: str | None = Field(default=None, max_length=300)
+    due_date: str | None = Field(default=None, max_length=20)
+    due_time: str | None = Field(default=None, max_length=10)
+    location_name: str | None = Field(default=None, max_length=200)
+
+
+class SmartEventCreateReminder(BaseModel):
+    scheduled_time: datetime
+    repeat: str = Field(
+        default="none",
+        pattern="^(none|daily|weekly)$",
+    )
+
+
+class SmartEventCreateJourney(BaseModel):
+    destination_latitude: float = Field(ge=-90, le=90)
+    destination_longitude: float = Field(ge=-180, le=180)
+    destination_address: str = Field(default="", max_length=300)
+    expected_duration_minutes: int = Field(default=45, ge=5, le=480)
+
+
+class NotificationCreate(BaseModel):
+    patient_id: str
+    title: str = Field(..., min_length=1, max_length=200)
+    message: str = Field(default="", max_length=500)
+    type: NotificationType = "system"
+    reference_id: str | None = Field(default=None, max_length=100)
+    reference_type: str | None = Field(default=None, max_length=50)
+    action_url: str | None = Field(default=None, max_length=500)
+
+
+class NotificationUpdate(BaseModel):
+    read: bool | None = None
+    dismissed: bool | None = None

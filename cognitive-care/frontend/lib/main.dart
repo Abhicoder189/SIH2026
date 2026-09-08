@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'l10n/language_service.dart';
 import 'l10n/translations.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/smart_help_screen.dart';
 import 'services/auth_service.dart';
+import 'services/notification_service.dart';
 
 void main() => runApp(const SmiritiSarthiApp());
 
@@ -19,10 +24,52 @@ class _SmiritiSarthiAppState extends State<SmiritiSarthiApp> {
   AppLanguage _language = AppLanguage.english;
   bool _languageLoaded = false;
 
+  static const _channel = MethodChannel('com.smiriti.sarthi/shared_text');
+
   @override
   void initState() {
     super.initState();
     _loadLanguage();
+    _setupShareIntentListener();
+    _checkInitialSharedMessage();
+    _initNotifications();
+  }
+
+  Future<void> _initNotifications() async {
+    await NotificationService().initialize();
+    await NotificationService().requestPermission();
+  }
+
+  void _setupShareIntentListener() {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onSharedText') {
+        final text = call.arguments as String?;
+        if (text != null && text.isNotEmpty && mounted) {
+          _navigateToSmartHelp(text);
+        }
+      }
+    });
+  }
+
+  Future<void> _checkInitialSharedMessage() async {
+    try {
+      final text = await _channel.invokeMethod<String>('getInitialSharedText');
+      if (text != null && text.isNotEmpty && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _navigateToSmartHelp(text);
+        });
+      }
+    } on PlatformException {
+      // No initial message
+    }
+  }
+
+  void _navigateToSmartHelp(String message) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const SmartHelpScreen(),
+      ),
+    );
   }
 
   Future<void> _loadLanguage() async {
@@ -62,7 +109,7 @@ class _SmiritiSarthiAppState extends State<SmiritiSarthiApp> {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.indigo,
+          seedColor: Colors.teal,
           brightness: Brightness.light,
         ),
         textTheme: const TextTheme(
@@ -112,6 +159,11 @@ class _SessionGateState extends State<_SessionGate> {
             values[2] == null) {
           return const LoginScreen();
         }
+
+        NotificationService().startPolling(
+          token: values[0]!,
+          patientId: values[1]!,
+        );
 
         return HomeScreen(
           token: values[0]!,

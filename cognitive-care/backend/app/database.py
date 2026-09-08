@@ -81,6 +81,8 @@ memory_interactions_collection = database["memory_interactions"]
 journeys_collection = database["journeys"]
 family_members_collection = database["family_members"]
 journey_interactions_collection = database["journey_interactions"]
+smart_events_collection = database["smart_events"]
+notifications_collection = database["notifications"]
 
 
 # ==================================================
@@ -152,6 +154,32 @@ def ensure_indexes():
 
         journey_interactions_collection.create_index(
             [("journey_id", ASCENDING), ("timestamp", DESCENDING)],
+            background=True,
+        )
+
+        smart_events_collection.create_index(
+            [("patient_id", ASCENDING), ("created_at", DESCENDING)],
+            background=True,
+        )
+        smart_events_collection.create_index(
+            [("patient_id", ASCENDING), ("status", ASCENDING)],
+            background=True,
+        )
+        smart_events_collection.create_index(
+            [("fingerprint", ASCENDING)],
+            background=True,
+        )
+        smart_events_collection.create_index(
+            [("patient_id", ASCENDING), ("category", ASCENDING)],
+            background=True,
+        )
+
+        notifications_collection.create_index(
+            [("patient_id", ASCENDING), ("created_at", DESCENDING)],
+            background=True,
+        )
+        notifications_collection.create_index(
+            [("patient_id", ASCENDING), ("read", ASCENDING)],
             background=True,
         )
 

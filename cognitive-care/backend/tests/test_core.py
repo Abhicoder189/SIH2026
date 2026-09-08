@@ -6,6 +6,21 @@ from app.schemas import UserRegister
 from app.task_context_engine import build_task_context, _derive_journey_state, _get_step_info
 from app.context_response_generator import generate_response
 from app.instruction_parser import _fallback_parse
+from app.smart_message_classifier import (
+    classify_relevance_rule_based,
+    classify_category_rule_based,
+    classify_message,
+    get_fingerprint,
+)
+from app.smart_event_extractor import (
+    _deterministic_extract,
+    _extract_amount,
+    _extract_date,
+    _extract_time,
+    _extract_location,
+    _validate_category,
+    _validate_action,
+)
 
 
 class CoreLogicTests(unittest.TestCase):
@@ -138,6 +153,210 @@ class TaskContextEngineTests(unittest.TestCase):
         result = _fallback_parse("Go to Apollo Pharmacy and buy medicines")
         self.assertEqual(result["task_type"], "purchase")
         self.assertIn("medicines", result["purpose"].lower())
+
+
+class SmartMessageClassifierTests(unittest.TestCase):
+
+    def test_relevance_bill_message(self):
+        is_relevant, confidence = classify_relevance_rule_based(
+            "Electricity bill of Rs. 1240 is due on 15 September"
+        )
+        self.assertTrue(is_relevant)
+        self.assertGreater(confidence, 0.5)
+
+    def test_relevance_appointment_message(self):
+        is_relevant, confidence = classify_relevance_rule_based(
+            "Doctor appointment at City Hospital tomorrow at 10 AM"
+        )
+        self.assertTrue(is_relevant)
+        self.assertGreater(confidence, 0.5)
+
+    def test_relevance_medicine_message(self):
+        is_relevant, confidence = classify_relevance_rule_based(
+            "Apollo Pharmacy: Your medicines are ready for pickup"
+        )
+        self.assertTrue(is_relevant)
+
+    def test_irrelevance_otp(self):
+        is_relevant, confidence = classify_relevance_rule_based(
+            "Your OTP is 839421"
+        )
+        self.assertFalse(is_relevant)
+
+    def test_irrelevance_spam(self):
+        is_relevant, confidence = classify_relevance_rule_based(
+            "Congratulations! You won a prize! Click here to claim now!"
+        )
+        self.assertFalse(is_relevant)
+
+    def test_irrelevance_discount(self):
+        is_relevant, confidence = classify_relevance_rule_based(
+            "50% off on all items today only!"
+        )
+        self.assertFalse(is_relevant)
+
+    def test_irrelevance_account_balance(self):
+        is_relevant, confidence = classify_relevance_rule_based(
+            "Your account balance is Rs. 5430.00"
+        )
+        self.assertFalse(is_relevant)
+
+    def test_category_bill(self):
+        category, confidence = classify_category_rule_based(
+            "Electricity bill of Rs. 1240 is due on 15 September"
+        )
+        self.assertEqual(category, "BILL")
+        self.assertGreater(confidence, 0.4)
+
+    def test_category_medicine(self):
+        category, confidence = classify_category_rule_based(
+            "Apollo Pharmacy: Your medicines are ready for pickup"
+        )
+        self.assertEqual(category, "MEDICINE")
+
+    def test_category_appointment(self):
+        category, confidence = classify_category_rule_based(
+            "Doctor appointment at City Hospital tomorrow at 10 AM"
+        )
+        self.assertEqual(category, "HEALTHCARE_APPOINTMENT")
+
+    def test_category_travel(self):
+        category, confidence = classify_category_rule_based(
+            "Train leaves from Jhansi station at 6 PM"
+        )
+        self.assertEqual(category, "TRAVEL")
+
+    def test_category_delivery(self):
+        category, confidence = classify_category_rule_based(
+            "Your package has been delivered to your doorstep"
+        )
+        self.assertEqual(category, "DELIVERY")
+
+    def test_classify_message_unified(self):
+        result = classify_message(
+            "Electricity bill of Rs. 1240 is due on 15 September"
+        )
+        self.assertTrue(result["is_relevant"])
+        self.assertEqual(result["category"], "BILL")
+        self.assertIn(result["method"], ("rule_based", "ml"))
+
+    def test_classify_message_irrelevant(self):
+        result = classify_message("Your OTP is 839421")
+        self.assertFalse(result["is_relevant"])
+        self.assertEqual(result["category"], "OTHER")
+
+    def test_fingerprint_deterministic(self):
+        fp1 = get_fingerprint("Hello world", "sms")
+        fp2 = get_fingerprint("Hello world", "sms")
+        self.assertEqual(fp1, fp2)
+
+    def test_fingerprint_different_messages(self):
+        fp1 = get_fingerprint("Hello world", "sms")
+        fp2 = get_fingerprint("Goodbye world", "sms")
+        self.assertNotEqual(fp1, fp2)
+
+    def test_fingerprint_normalizes(self):
+        fp1 = get_fingerprint("  Hello   World  ", "SMS")
+        fp2 = get_fingerprint("hello world", "sms")
+        self.assertEqual(fp1, fp2)
+
+
+class SmartEventExtractorTests(unittest.TestCase):
+
+    def test_deterministic_extract_bill(self):
+        result = _deterministic_extract(
+            "Electricity bill of Rs. 1240 is due on 15 September. Pay at billing office."
+        )
+        self.assertEqual(result["category"], "BILL")
+        self.assertEqual(result["amount"], 1240.0)
+        self.assertEqual(result["currency"], "INR")
+        self.assertEqual(result["action"], "PAY")
+        self.assertTrue(result["is_relevant"])
+        self.assertGreater(result["confidence"], 0.5)
+        self.assertEqual(result["extraction_method"], "deterministic")
+
+    def test_deterministic_extract_medicine(self):
+        result = _deterministic_extract(
+            "Apollo Pharmacy: Your medicines are ready for pickup."
+        )
+        self.assertEqual(result["category"], "MEDICINE")
+        self.assertEqual(result["action"], "PICKUP")
+        self.assertTrue(result["is_relevant"])
+
+    def test_deterministic_extract_appointment(self):
+        result = _deterministic_extract(
+            "Doctor appointment at City Hospital tomorrow at 10 AM"
+        )
+        self.assertEqual(result["category"], "HEALTHCARE_APPOINTMENT")
+        self.assertIsNotNone(result["due_date"])
+        self.assertIsNotNone(result["due_time"])
+
+    def test_deterministic_extract_travel(self):
+        result = _deterministic_extract(
+            "Train leaves from station at 6 PM"
+        )
+        self.assertEqual(result["category"], "TRAVEL")
+        self.assertEqual(result["due_time"], "18:00")
+
+    def test_deterministic_extract_no_location(self):
+        result = _deterministic_extract(
+            "Your bill is due tomorrow"
+        )
+        self.assertIsNone(result["location_name"])
+
+    def test_extract_amount_rupees(self):
+        amount, currency = _extract_amount("Rs. 1240")
+        self.assertEqual(amount, 1240.0)
+        self.assertEqual(currency, "INR")
+
+    def test_extract_amount_dollar(self):
+        amount, currency = _extract_amount("$50.00")
+        self.assertEqual(amount, 50.0)
+        self.assertEqual(currency, "USD")
+
+    def test_extract_amount_none(self):
+        amount, currency = _extract_amount("No amount here")
+        self.assertIsNone(amount)
+
+    def test_extract_time_am_pm(self):
+        time_str = _extract_time("at 10 am")
+        self.assertEqual(time_str, "10:00")
+
+        time_str2 = _extract_time("at 6 pm")
+        self.assertEqual(time_str2, "18:00")
+
+    def test_extract_time_colon(self):
+        time_str = _extract_time("at 14:30")
+        self.assertEqual(time_str, "14:30")
+
+    def test_extract_time_none(self):
+        time_str = _extract_time("no time here")
+        self.assertIsNone(time_str)
+
+    def test_extract_location(self):
+        loc = _extract_location("go to the billing office and pay")
+        self.assertIsNotNone(loc)
+        self.assertIn("billing", loc.lower())
+
+    def test_validate_category_valid(self):
+        self.assertEqual(_validate_category("BILL"), "BILL")
+        self.assertEqual(_validate_category("bill"), "BILL")
+        self.assertEqual(_validate_category("OTHER"), "OTHER")
+
+    def test_validate_category_invalid(self):
+        self.assertEqual(_validate_category("random"), "OTHER")
+
+    def test_validate_action_valid(self):
+        self.assertEqual(_validate_action("PAY"), "PAY")
+        self.assertEqual(_validate_action("pay"), "PAY")
+
+    def test_validate_action_invalid(self):
+        self.assertEqual(_validate_action("random"), "OTHER")
+
+    def test_extract_event_returns_none_for_empty(self):
+        result = _deterministic_extract("")
+        self.assertIsNotNone(result)
+        self.assertEqual(result["category"], "OTHER")
 
 
 if __name__ == "__main__":

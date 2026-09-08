@@ -1143,4 +1143,260 @@ class ApiService {
 
     return Map<String, dynamic>.from(response);
   }
+
+  // ============================================================
+  // SMART MESSAGE UNDERSTANDING
+  // ============================================================
+
+  static Future<Map<String, dynamic>> analyzeSmartMessage({
+    required String token,
+    required String message,
+    String source = 'manual',
+    String? sender,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/smart-messages/analyze',
+      token: token,
+      body: {
+        'message': message,
+        'source': source,
+        if (sender != null) 'sender': sender,
+      },
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> getSmartEvents({
+    required String token,
+    String? status,
+    String? category,
+    int limit = 20,
+  }) async {
+    final queryParams = <String, String>{
+      'limit': limit.toString(),
+    };
+    if (status != null) queryParams['status'] = status;
+    if (category != null) queryParams['category'] = category;
+
+    final uri = Uri.https(
+      'sih2026-gh31.onrender.com',
+      '/smart-events',
+      queryParams,
+    );
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(_timeout);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load smart events');
+    }
+
+    return jsonDecode(response.body);
+  }
+
+  static Future<Map<String, dynamic>> getActiveSmartEvents({
+    required String token,
+  }) async {
+    final response = await _request(
+      'GET',
+      '/smart-events/active',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> getSmartEvent({
+    required String token,
+    required String eventId,
+  }) async {
+    final response = await _request(
+      'GET',
+      '/smart-events/$eventId',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> confirmSmartEvent({
+    required String token,
+    required String eventId,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/smart-events/$eventId/confirm',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> createSmartEventReminder({
+    required String token,
+    required String eventId,
+    required String scheduledTime,
+    String repeat = 'none',
+  }) async {
+    final response = await _request(
+      'POST',
+      '/smart-events/$eventId/create-reminder',
+      token: token,
+      body: {
+        'scheduled_time': scheduledTime,
+        'repeat': repeat,
+      },
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> createSmartEventJourney({
+    required String token,
+    required String eventId,
+    required double latitude,
+    required double longitude,
+    String address = '',
+    int duration = 45,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/smart-events/$eventId/create-journey',
+      token: token,
+      body: {
+        'destination_latitude': latitude,
+        'destination_longitude': longitude,
+        'destination_address': address,
+        'expected_duration_minutes': duration,
+      },
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<void> dismissSmartEvent({
+    required String token,
+    required String eventId,
+  }) async {
+    await _request(
+      'DELETE',
+      '/smart-events/$eventId',
+      token: token,
+    );
+  }
+
+  static Future<Map<String, dynamic>> updateSmartEvent({
+    required String token,
+    required String eventId,
+    Map<String, dynamic>? updates,
+  }) async {
+    final response = await _request(
+      'PUT',
+      '/smart-events/$eventId',
+      token: token,
+      body: updates ?? {},
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<Map<String, dynamic>> getCaregiverSmartEvents({
+    required String token,
+    required String patientId,
+  }) async {
+    final response = await _request(
+      'GET',
+      '/caregiver/patients/$patientId/smart-events',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  // ============================================================
+  // NOTIFICATIONS
+  // ============================================================
+
+  static Future<Map<String, dynamic>> getNotifications({
+    required String token,
+    bool unreadOnly = false,
+    int limit = 30,
+  }) async {
+    final queryParams = <String, String>{
+      'limit': limit.toString(),
+      'unread_only': unreadOnly.toString(),
+    };
+
+    final uri = Uri.https(
+      'sih2026-gh31.onrender.com',
+      '/notifications',
+      queryParams,
+    );
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    ).timeout(_timeout);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load notifications');
+    }
+
+    return jsonDecode(response.body);
+  }
+
+  static Future<Map<String, dynamic>> getUnreadNotificationCount({
+    required String token,
+  }) async {
+    final response = await _request(
+      'GET',
+      '/notifications/unread-count',
+      token: token,
+    );
+
+    return Map<String, dynamic>.from(response);
+  }
+
+  static Future<void> markNotificationRead({
+    required String token,
+    required String notificationId,
+  }) async {
+    await _request(
+      'PUT',
+      '/notifications/$notificationId',
+      token: token,
+      body: {'read': true},
+    );
+  }
+
+  static Future<void> markAllNotificationsRead({
+    required String token,
+  }) async {
+    await _request(
+      'PUT',
+      '/notifications/read-all',
+      token: token,
+    );
+  }
+
+  static Future<void> dismissNotification({
+    required String token,
+    required String notificationId,
+  }) async {
+    await _request(
+      'DELETE',
+      '/notifications/$notificationId',
+      token: token,
+    );
+  }
 }

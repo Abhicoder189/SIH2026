@@ -34,8 +34,10 @@ from .database import (
     journey_interactions_collection,
     memories_collection,
     memory_interactions_collection,
+    notifications_collection,
     patients_collection,
     reminders_collection,
+    smart_events_collection,
     sync_events_collection,
     test_database_connection,
     users_collection,
@@ -58,10 +60,16 @@ from .schemas import (
     MemoryCreate,
     MemoryGameSubmit,
     MemoryUpdate,
+    NotificationCreate,
+    NotificationUpdate,
     PatientCreate,
     PatternGameSubmit,
     ReminderCreate,
     ReminderUpdate,
+    SmartEventCreateJourney,
+    SmartEventCreateReminder,
+    SmartEventUpdate,
+    SmartMessageAnalyze,
     SyncAttempt,
     SyncReminder,
     TokenResponse,
@@ -75,6 +83,8 @@ from .task_context_engine import build_task_context
 from .instruction_parser import parse_instruction
 from .context_response_generator import generate_response, get_all_responses
 from .context_ml import extract_features as ml_extract_features, predict_state as ml_predict_state
+from .smart_event_extractor import extract_event_from_message
+from .smart_message_classifier import classify_message, get_fingerprint
 # ============================================================
 # APP CONFIGURATION
 # ============================================================
@@ -1891,8 +1901,33 @@ def notification_feed(
             "scheduled_time": scheduled,
             "due": due,
             "type": reminder.get("type", "activity"),
+            "source": "reminder",
         })
-    return {"items": feed, "server_time": current}
+
+    smart_events = list(
+        smart_events_collection.find({
+            "patient_id": patient_id,
+            "status": {"$in": ["new", "confirmed"]},
+        })
+        .sort("created_at", -1)
+        .limit(10)
+    )
+    for event in smart_events:
+        feed.append({
+            "id": str(event.get("_id")),
+            "title": event.get("title", "Smart Event"),
+            "message": event.get("purpose", ""),
+            "scheduled_time": event.get("due_date"),
+            "due": False,
+            "type": event.get("category", "OTHER"),
+            "source": "smart_event",
+            "confidence": event.get("confidence", 0),
+            "location_name": event.get("location_name"),
+        })
+
+    feed.sort(key=lambda x: str(x.get("created_at", "") or x.get("scheduled_time", "")), reverse=True)
+
+    return {"items": feed[:30], "server_time": current}
 
 
 # ============================================================
@@ -3763,3 +3798,875 @@ def geocode_autocomplete(
             status_code=502,
             detail=f"Geocoding service error: {e}",
         )
+
+
+# ============================================================
+# SMART MESSAGE UNDERSTANDING
+# ============================================================
+
+
+@app.post(
+    "/smart-messages/analyze",
+    tags=["Smart Messages"],
+)
+def analyze_smart_message(
+    body: SmartMessageAnalyze,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Analyze a message and extract structured smart event.
+
+    Accepts a raw message (from share intent, manual paste, etc.),
+    classifies relevance, extracts structured information,
+    and stores a Smart Event if relevant.
+
+    Privacy: Only processes messages the user explicitly submits.
+    """
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = str(patient["_id"])
+
+    classification = classify_message(body.message)
+
+    if not classification["is_relevant"]:
+        return {
+            "status": "irrelevant",
+            "message": "This message does not seem to need your attention.",
+            "classification": classification,
+            "event": None,
+        }
+
+    existing_fingerprint = get_fingerprint(body.message, body.source)
+    existing = smart_events_collection.find_one({
+        "patient_id": patient_id,
+        "fingerprint": existing_fingerprint,
+    })
+    if existing:
+        return {
+            "status": "duplicate",
+            "message": "This message was already processed.",
+            "classification": classification,
+            "event": {
+                "id": str(existing["_id"]),
+                "title": existing.get("title", ""),
+                "category": existing.get("category", ""),
+                "status": existing.get("status", ""),
+            },
+        }
+
+    extracted = extract_event_from_message(
+        message=body.message,
+        sender=body.sender,
+        patient_age=patient.get("age"),
+        patient_language=patient.get("language"),
+    )
+
+    if not extracted or not extracted.get("is_relevant"):
+        return {
+            "status": "irrelevant",
+            "message": "This message does not seem to need your attention.",
+            "classification": classification,
+            "event": None,
+        }
+
+    event_doc = {
+        "patient_id": patient_id,
+        "category": extracted.get("category", "OTHER"),
+        "title": extracted.get("title", "Message"),
+        "action": extracted.get("action", "REMEMBER"),
+        "purpose": extracted.get("purpose", ""),
+        "amount": extracted.get("amount"),
+        "currency": extracted.get("currency"),
+        "due_date": extracted.get("due_date"),
+        "due_time": extracted.get("due_time"),
+        "appointment_time": extracted.get("appointment_time"),
+        "location_name": extracted.get("location_name"),
+        "location_address": extracted.get("location_address"),
+        "doctor_name": extracted.get("doctor_name"),
+        "medicine_name": extracted.get("medicine_name"),
+        "sender": body.sender or extracted.get("sender"),
+        "source": body.source,
+        "steps": extracted.get("steps", []),
+        "confidence": extracted.get("confidence", 0.5),
+        "status": "new",
+        "confirmed": False,
+        "reminder_id": None,
+        "journey_id": None,
+        "fingerprint": existing_fingerprint,
+        "extraction_method": extracted.get("extraction_method", "unknown"),
+        "raw_message": body.message[:500],
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+    result = smart_events_collection.insert_one(event_doc)
+    event_id = str(result.inserted_id)
+
+    _create_notification(
+        patient_id=patient_id,
+        title=event_doc["title"],
+        message=patient_friendly["message"],
+        type="smart_event",
+        reference_id=event_id,
+        reference_type="smart_event",
+    )
+
+    patient_friendly = _patient_friendly_event(extracted)
+
+    return {
+        "status": "created",
+        "message": patient_friendly["message"],
+        "classification": classification,
+        "event": {
+            "id": event_id,
+            "category": event_doc["category"],
+            "title": event_doc["title"],
+            "action": event_doc["action"],
+            "purpose": event_doc["purpose"],
+            "amount": event_doc["amount"],
+            "currency": event_doc["currency"],
+            "due_date": event_doc["due_date"],
+            "due_time": event_doc["due_time"],
+            "appointment_time": event_doc["appointment_time"],
+            "location_name": event_doc["location_name"],
+            "confidence": event_doc["confidence"],
+            "status": "new",
+        },
+        "suggested_actions": patient_friendly["suggested_actions"],
+    }
+
+
+@app.get(
+    "/smart-events",
+    tags=["Smart Messages"],
+)
+def list_smart_events(
+    status_filter: str | None = Query(default=None, alias="status"),
+    category: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=50),
+    current_user: dict = Depends(get_current_user),
+):
+    """List smart events for the current patient."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = str(patient["_id"])
+
+    query: dict = {"patient_id": patient_id}
+    if status_filter:
+        query["status"] = status_filter
+    if category:
+        query["category"] = category.upper()
+
+    events = list(
+        smart_events_collection.find(query)
+        .sort("created_at", -1)
+        .limit(limit)
+    )
+
+    return {
+        "events": [
+            {
+                "id": str(e["_id"]),
+                "category": e.get("category", "OTHER"),
+                "title": e.get("title", ""),
+                "action": e.get("action", "REMEMBER"),
+                "purpose": e.get("purpose", ""),
+                "amount": e.get("amount"),
+                "currency": e.get("currency"),
+                "due_date": e.get("due_date"),
+                "due_time": e.get("due_time"),
+                "appointment_time": e.get("appointment_time"),
+                "location_name": e.get("location_name"),
+                "confidence": e.get("confidence", 0),
+                "status": e.get("status", "new"),
+                "confirmed": e.get("confirmed", False),
+                "reminder_id": e.get("reminder_id"),
+                "journey_id": e.get("journey_id"),
+                "created_at": e.get("created_at", "").isoformat() if hasattr(e.get("created_at", ""), "isoformat") else str(e.get("created_at", "")),
+            }
+            for e in events
+        ],
+    }
+
+
+@app.get(
+    "/smart-events/active",
+    tags=["Smart Messages"],
+)
+def get_active_smart_events(
+    current_user: dict = Depends(get_current_user),
+):
+    """Get active (new/confirmed) smart events for the patient."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = str(patient["_id"])
+
+    events = list(
+        smart_events_collection.find({
+            "patient_id": patient_id,
+            "status": {"$in": ["new", "confirmed"]},
+        })
+        .sort("created_at", -1)
+        .limit(20)
+    )
+
+    return {
+        "events": [
+            {
+                "id": str(e["_id"]),
+                "category": e.get("category", "OTHER"),
+                "title": e.get("title", ""),
+                "action": e.get("action", "REMEMBER"),
+                "purpose": e.get("purpose", ""),
+                "amount": e.get("amount"),
+                "currency": e.get("currency"),
+                "due_date": e.get("due_date"),
+                "due_time": e.get("due_time"),
+                "location_name": e.get("location_name"),
+                "confidence": e.get("confidence", 0),
+                "status": e.get("status", "new"),
+                "created_at": e.get("created_at", "").isoformat() if hasattr(e.get("created_at", ""), "isoformat") else str(e.get("created_at", "")),
+            }
+            for e in events
+        ],
+    }
+
+
+@app.get(
+    "/smart-events/{event_id}",
+    tags=["Smart Messages"],
+)
+def get_smart_event(
+    event_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get a specific smart event by ID."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    try:
+        event = smart_events_collection.find_one({
+            "_id": ObjectId(event_id),
+            "patient_id": str(patient["_id"]),
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid event ID")
+
+    if not event:
+        raise HTTPException(status_code=404, detail="Smart event not found")
+
+    return {
+        "id": str(event["_id"]),
+        "category": event.get("category", "OTHER"),
+        "title": event.get("title", ""),
+        "action": event.get("action", "REMEMBER"),
+        "purpose": event.get("purpose", ""),
+        "amount": event.get("amount"),
+        "currency": event.get("currency"),
+        "due_date": event.get("due_date"),
+        "due_time": event.get("due_time"),
+        "appointment_time": event.get("appointment_time"),
+        "location_name": event.get("location_name"),
+        "location_address": event.get("location_address"),
+        "doctor_name": event.get("doctor_name"),
+        "medicine_name": event.get("medicine_name"),
+        "sender": event.get("sender"),
+        "steps": event.get("steps", []),
+        "confidence": event.get("confidence", 0),
+        "status": event.get("status", "new"),
+        "confirmed": event.get("confirmed", False),
+        "reminder_id": event.get("reminder_id"),
+        "journey_id": event.get("journey_id"),
+        "created_at": event.get("created_at", "").isoformat() if hasattr(event.get("created_at", ""), "isoformat") else str(event.get("created_at", "")),
+    }
+
+
+@app.put(
+    "/smart-events/{event_id}",
+    tags=["Smart Messages"],
+)
+def update_smart_event(
+    event_id: str,
+    body: SmartEventUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Update a smart event (status, confirmation, details)."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    try:
+        existing = smart_events_collection.find_one({
+            "_id": ObjectId(event_id),
+            "patient_id": str(patient["_id"]),
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid event ID")
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="Smart event not found")
+
+    update_fields: dict = {}
+    if body.status is not None:
+        update_fields["status"] = body.status
+    if body.confirmed is not None:
+        update_fields["confirmed"] = body.confirmed
+    if body.title is not None:
+        update_fields["title"] = body.title
+    if body.purpose is not None:
+        update_fields["purpose"] = body.purpose
+    if body.due_date is not None:
+        update_fields["due_date"] = body.due_date
+    if body.due_time is not None:
+        update_fields["due_time"] = body.due_time
+    if body.location_name is not None:
+        update_fields["location_name"] = body.location_name
+
+    update_fields["updated_at"] = datetime.now(timezone.utc)
+
+    smart_events_collection.update_one(
+        {"_id": ObjectId(event_id)},
+        {"$set": update_fields},
+    )
+
+    return {"status": "updated"}
+
+
+@app.post(
+    "/smart-events/{event_id}/confirm",
+    tags=["Smart Messages"],
+)
+def confirm_smart_event(
+    event_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Confirm a smart event is correct and actionable."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    try:
+        event = smart_events_collection.find_one({
+            "_id": ObjectId(event_id),
+            "patient_id": str(patient["_id"]),
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid event ID")
+
+    if not event:
+        raise HTTPException(status_code=404, detail="Smart event not found")
+
+    smart_events_collection.update_one(
+        {"_id": ObjectId(event_id)},
+        {"$set": {
+            "confirmed": True,
+            "status": "confirmed",
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+
+    return {"status": "confirmed"}
+
+
+@app.post(
+    "/smart-events/{event_id}/create-reminder",
+    tags=["Smart Messages"],
+)
+def create_smart_event_reminder(
+    event_id: str,
+    body: SmartEventCreateReminder,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a reminder from a smart event."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = str(patient["_id"])
+
+    try:
+        event = smart_events_collection.find_one({
+            "_id": ObjectId(event_id),
+            "patient_id": patient_id,
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid event ID")
+
+    if not event:
+        raise HTTPException(status_code=404, detail="Smart event not found")
+
+    title = event.get("title", "Reminder")
+    purpose = event.get("purpose", "")
+    message = purpose if purpose else title
+
+    reminder_doc = {
+        "patient_id": patient_id,
+        "title": title,
+        "message": message[:300],
+        "type": _event_to_reminder_type(event.get("category", "OTHER")),
+        "scheduled_time": body.scheduled_time,
+        "repeat": body.repeat,
+        "completed": False,
+        "created_at": datetime.now(timezone.utc),
+    }
+
+    result = reminders_collection.insert_one(reminder_doc)
+    reminder_id = str(result.inserted_id)
+
+    smart_events_collection.update_one(
+        {"_id": ObjectId(event_id)},
+        {"$set": {
+            "reminder_id": reminder_id,
+            "status": "reminder_set",
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+
+    return {
+        "status": "reminder_created",
+        "reminder_id": reminder_id,
+    }
+
+
+@app.post(
+    "/smart-events/{event_id}/create-journey",
+    tags=["Smart Messages"],
+)
+def create_smart_event_journey(
+    event_id: str,
+    body: SmartEventCreateJourney,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a journey from a smart event."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = str(patient["_id"])
+
+    try:
+        event = smart_events_collection.find_one({
+            "_id": ObjectId(event_id),
+            "patient_id": patient_id,
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid event ID")
+
+    if not event:
+        raise HTTPException(status_code=404, detail="Smart event not found")
+
+    destination_name = event.get("location_name", "Destination")
+    purpose = event.get("purpose", event.get("title", "Visit"))
+
+    journey_doc = {
+        "patient_id": patient_id,
+        "destination_name": destination_name,
+        "destination_address": body.destination_address or event.get("location_address", ""),
+        "destination_latitude": body.destination_latitude,
+        "destination_longitude": body.destination_longitude,
+        "purpose": purpose,
+        "expected_duration_minutes": body.expected_duration_minutes,
+        "instruction": "",
+        "status": "active",
+        "started_at": datetime.now(timezone.utc),
+        "arrival_at": None,
+        "completed_at": None,
+        "steps": event.get("steps", []),
+        "current_step": 0,
+        "distance_to_destination_m": None,
+    }
+
+    result = journeys_collection.insert_one(journey_doc)
+    journey_id = str(result.inserted_id)
+
+    smart_events_collection.update_one(
+        {"_id": ObjectId(event_id)},
+        {"$set": {
+            "journey_id": journey_id,
+            "status": "journey_created",
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+
+    return {
+        "status": "journey_created",
+        "journey_id": journey_id,
+    }
+
+
+@app.delete(
+    "/smart-events/{event_id}",
+    tags=["Smart Messages"],
+)
+def dismiss_smart_event(
+    event_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Dismiss/delete a smart event."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    try:
+        result = smart_events_collection.delete_one({
+            "_id": ObjectId(event_id),
+            "patient_id": str(patient["_id"]),
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid event ID")
+
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Smart event not found")
+
+    return {"status": "dismissed"}
+
+
+@app.get(
+    "/caregiver/patients/{patient_id}/smart-events",
+    tags=["Smart Messages"],
+)
+def caregiver_get_patient_smart_events(
+    patient_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get smart events for a patient (caregiver view)."""
+
+    if current_user.get("role") != "caregiver":
+        raise HTTPException(status_code=403, detail="Caregiver access required")
+
+    link = caregiver_links_collection.find_one({
+        "caregiver_id": str(current_user["_id"]),
+        "patient_id": patient_id,
+        "status": "active",
+    })
+    if not link:
+        raise HTTPException(status_code=403, detail="No active link to this patient")
+
+    events = list(
+        smart_events_collection.find({"patient_id": patient_id})
+        .sort("created_at", -1)
+        .limit(50)
+    )
+
+    return {
+        "events": [
+            {
+                "id": str(e["_id"]),
+                "category": e.get("category", "OTHER"),
+                "title": e.get("title", ""),
+                "purpose": e.get("purpose", ""),
+                "amount": e.get("amount"),
+                "currency": e.get("currency"),
+                "due_date": e.get("due_date"),
+                "location_name": e.get("location_name"),
+                "confidence": e.get("confidence", 0),
+                "status": e.get("status", "new"),
+                "reminder_id": e.get("reminder_id"),
+                "journey_id": e.get("journey_id"),
+                "created_at": e.get("created_at", "").isoformat() if hasattr(e.get("created_at", ""), "isoformat") else str(e.get("created_at", "")),
+            }
+            for e in events
+        ],
+    }
+
+
+# ============================================================
+# NOTIFICATION HELPERS
+# ============================================================
+
+
+def _create_notification(
+    patient_id: str,
+    title: str,
+    message: str = "",
+    type: str = "system",
+    reference_id: str | None = None,
+    reference_type: str | None = None,
+    action_url: str | None = None,
+) -> str | None:
+    """Create a notification for a patient. Returns the notification ID."""
+
+    doc = {
+        "patient_id": patient_id,
+        "title": title,
+        "message": message[:500],
+        "type": type,
+        "reference_id": reference_id,
+        "reference_type": reference_type,
+        "action_url": action_url,
+        "read": False,
+        "dismissed": False,
+        "created_at": datetime.now(timezone.utc),
+    }
+
+    result = notifications_collection.insert_one(doc)
+    return str(result.inserted_id)
+
+
+# ============================================================
+# SMART MESSAGE HELPERS
+# ============================================================
+
+
+def _patient_friendly_event(extracted: dict) -> dict:
+    """Convert extracted event to patient-friendly message and suggestions."""
+
+    category = extracted.get("category", "OTHER")
+    title = extracted.get("title", "Message")
+    purpose = extracted.get("purpose", "")
+    location = extracted.get("location_name")
+    amount = extracted.get("amount")
+    currency = extracted.get("currency")
+    due_date = extracted.get("due_date")
+    action = extracted.get("action", "REMEMBER")
+
+    parts = []
+
+    if category == "BILL":
+        if amount and currency == "INR":
+            parts.append(f"{title} of Rs. {amount:,.0f}")
+        else:
+            parts.append(title)
+        if due_date:
+            parts.append(f"due on {due_date}")
+        msg = " ".join(parts) + "."
+    elif category == "MEDICINE":
+        if "ready" in title.lower() or action == "PICKUP":
+            msg = f"Your medicines are ready."
+            if location:
+                msg += f" at {location}"
+        else:
+            msg = purpose if purpose else title
+    elif category == "HEALTHCARE_APPOINTMENT":
+        msg = purpose if purpose else title
+        if location:
+            msg += f" at {location}"
+    elif category == "TRAVEL":
+        msg = purpose if purpose else title
+    elif category == "DELIVERY":
+        msg = purpose if purpose else "You have a delivery."
+    else:
+        msg = purpose if purpose else title
+
+    suggested_actions = []
+    if category in ("BILL", "MEDICINE", "HEALTHCARE_APPOINTMENT", "DELIVERY", "SHOPPING"):
+        suggested_actions.append("remind_me")
+        if location:
+            suggested_actions.append("plan_visit")
+
+    if not suggested_actions:
+        suggested_actions.append("dismiss")
+
+    return {
+        "message": msg,
+        "suggested_actions": suggested_actions,
+    }
+
+
+def _event_to_reminder_type(category: str) -> str:
+    """Map smart event category to reminder type."""
+
+    mapping = {
+        "BILL": "activity",
+        "MEDICINE": "medicine",
+        "HEALTHCARE_APPOINTMENT": "appointment",
+        "TRAVEL": "activity",
+        "DELIVERY": "activity",
+        "SHOPPING": "activity",
+        "FAMILY_INSTRUCTION": "activity",
+        "REMINDER": "activity",
+        "EVENT": "activity",
+    }
+    return mapping.get(category, "activity")
+
+
+# ============================================================
+# NOTIFICATIONS
+# ============================================================
+
+
+@app.get(
+    "/notifications",
+    tags=["Notifications"],
+)
+def list_notifications(
+    unread_only: bool = Query(default=False),
+    limit: int = Query(default=30, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
+):
+    """List notifications for the current patient."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = str(patient["_id"])
+
+    query: dict = {"patient_id": patient_id}
+    if unread_only:
+        query["read"] = False
+
+    notifications = list(
+        notifications_collection.find(query)
+        .sort("created_at", -1)
+        .limit(limit)
+    )
+
+    unread_count = notifications_collection.count_documents({
+        "patient_id": patient_id,
+        "read": False,
+    })
+
+    return {
+        "notifications": [
+            {
+                "id": str(n["_id"]),
+                "title": n.get("title", ""),
+                "message": n.get("message", ""),
+                "type": n.get("type", "system"),
+                "reference_id": n.get("reference_id"),
+                "reference_type": n.get("reference_type"),
+                "action_url": n.get("action_url"),
+                "read": n.get("read", False),
+                "dismissed": n.get("dismissed", False),
+                "created_at": n.get("created_at", "").isoformat()
+                if hasattr(n.get("created_at", ""), "isoformat")
+                else str(n.get("created_at", "")),
+            }
+            for n in notifications
+        ],
+        "unread_count": unread_count,
+    }
+
+
+@app.get(
+    "/notifications/unread-count",
+    tags=["Notifications"],
+)
+def get_unread_notification_count(
+    current_user: dict = Depends(get_current_user),
+):
+    """Get count of unread notifications."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = str(patient["_id"])
+
+    count = notifications_collection.count_documents({
+        "patient_id": patient_id,
+        "read": False,
+    })
+
+    return {"unread_count": count}
+
+
+@app.put(
+    "/notifications/{notification_id}",
+    tags=["Notifications"],
+)
+def update_notification(
+    notification_id: str,
+    body: NotificationUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Update a notification (mark read/dismissed)."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    try:
+        existing = notifications_collection.find_one({
+            "_id": ObjectId(notification_id),
+            "patient_id": str(patient["_id"]),
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid notification ID")
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    update_fields: dict = {}
+    if body.read is not None:
+        update_fields["read"] = body.read
+    if body.dismissed is not None:
+        update_fields["dismissed"] = body.dismissed
+
+    if update_fields:
+        notifications_collection.update_one(
+            {"_id": ObjectId(notification_id)},
+            {"$set": update_fields},
+        )
+
+    return {"status": "updated"}
+
+
+@app.put(
+    "/notifications/read-all",
+    tags=["Notifications"],
+)
+def mark_all_notifications_read(
+    current_user: dict = Depends(get_current_user),
+):
+    """Mark all notifications as read for the current patient."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    patient_id = str(patient["_id"])
+
+    result = notifications_collection.update_many(
+        {"patient_id": patient_id, "read": False},
+        {"$set": {"read": True}},
+    )
+
+    return {
+        "status": "updated",
+        "count": result.modified_count,
+    }
+
+
+@app.delete(
+    "/notifications/{notification_id}",
+    tags=["Notifications"],
+)
+def dismiss_notification(
+    notification_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Dismiss/delete a notification."""
+
+    patient = get_my_patient(current_user["_id"])
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    try:
+        result = notifications_collection.delete_one({
+            "_id": ObjectId(notification_id),
+            "patient_id": str(patient["_id"]),
+        })
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid notification ID")
+
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    return {"status": "dismissed"}
